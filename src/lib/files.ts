@@ -1,10 +1,23 @@
 import { promises as fs } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import type { AttachmentKind, AttachmentRef } from "./types";
 
-const uploadDir = process.env.UPLOADS_DIR
-  ? path.resolve(process.env.UPLOADS_DIR)
-  : path.join(process.cwd(), ".data", "uploads");
+function defaultUploadDir() {
+  if (process.env.UPLOADS_DIR) {
+    return path.isAbsolute(process.env.UPLOADS_DIR)
+      ? process.env.UPLOADS_DIR
+      : path.join(/* turbopackIgnore: true */ process.cwd(), process.env.UPLOADS_DIR);
+  }
+
+  if (process.env.VERCEL) {
+    return path.join(os.tmpdir(), "cheesy-parts-tracker", "uploads");
+  }
+
+  return path.join(process.cwd(), ".data", "uploads");
+}
+
+const uploadDir = defaultUploadDir();
 
 function safeFilename(filename: string) {
   return filename

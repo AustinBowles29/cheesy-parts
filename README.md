@@ -70,3 +70,7 @@ See `docs/onshape-panel.md` for supported query parameters and panel wiring.
 
 Uploaded files are stored locally for development. For production deployment,
 use durable file storage and pass public file URLs to Airtable attachments.
+
+On Vercel, local fallback storage uses `/tmp` only to keep the app running when
+Airtable is not configured. That storage is ephemeral and can disappear between
+function invocations, so production queues should use Airtable.

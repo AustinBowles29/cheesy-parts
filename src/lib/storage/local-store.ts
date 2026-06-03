@@ -1,8 +1,23 @@
 import { promises as fs } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import type { ManufacturingRequest } from "../types";
 
-const dataDir = path.join(process.cwd(), ".data");
+function defaultDataDir() {
+  if (process.env.LOCAL_DATA_DIR) {
+    return path.isAbsolute(process.env.LOCAL_DATA_DIR)
+      ? process.env.LOCAL_DATA_DIR
+      : path.join(/* turbopackIgnore: true */ process.cwd(), process.env.LOCAL_DATA_DIR);
+  }
+
+  if (process.env.VERCEL) {
+    return path.join(os.tmpdir(), "cheesy-parts-tracker");
+  }
+
+  return path.join(process.cwd(), ".data");
+}
+
+const dataDir = defaultDataDir();
 const storePath = path.join(dataDir, "requests.json");
 
 async function ensureStore() {
