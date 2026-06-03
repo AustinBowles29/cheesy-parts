@@ -21,22 +21,28 @@ function buildOnshapeUrl(
   elementIdOverride?: string,
 ) {
   const documentId = firstParam(params.documentId) ?? firstParam(params.did);
+  const workspaceOrVersion = firstParam(params.workspaceOrVersion)?.toLowerCase();
+  const workspaceOrVersionId = firstParam(params.workspaceOrVersionId);
   const workspaceId =
     firstParam(params.workspaceId) ??
     firstParam(params.wid) ??
+    (workspaceOrVersion?.startsWith("w") ? workspaceOrVersionId : undefined);
+  const versionId =
     firstParam(params.versionId) ??
-    firstParam(params.vid);
+    firstParam(params.vid) ??
+    (workspaceOrVersion?.startsWith("v") ? workspaceOrVersionId : undefined);
+  const workspaceOrVersionTarget = workspaceId ?? versionId;
   const elementId =
     elementIdOverride ?? firstParam(params.elementId) ?? firstParam(params.eid);
   const partId = firstParam(params.partId) ?? firstParam(params.pid);
 
-  if (!documentId || !workspaceId || !elementId) {
+  if (!documentId || !workspaceOrVersionTarget || !elementId) {
     return "";
   }
 
-  const workspaceSegment = params.versionId || params.vid ? "v" : "w";
+  const workspaceSegment = versionId ? "v" : "w";
   const url = new URL(
-    `https://cad.onshape.com/documents/${documentId}/${workspaceSegment}/${workspaceId}/e/${elementId}`,
+    `https://cad.onshape.com/documents/${documentId}/${workspaceSegment}/${workspaceOrVersionTarget}/e/${elementId}`,
   );
 
   if (partId) {
@@ -93,7 +99,9 @@ function defaultsFromSearchParams(
       firstParam(params.branch) ??
       firstParam(params.version) ??
       normalizeString(
-        firstParam(params.workspaceId) ?? firstParam(params.versionId),
+        firstParam(params.workspaceId) ??
+          firstParam(params.versionId) ??
+          firstParam(params.workspaceOrVersionId),
       ),
     category: firstParam(params.category) ?? "Robot",
     finish: firstParam(params.finish) ?? "Raw",

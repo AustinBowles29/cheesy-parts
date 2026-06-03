@@ -19,6 +19,8 @@ the Onshape context can provide:
 - `documentId`
 - `workspaceId`
 - `versionId`
+- `workspaceOrVersion`
+- `workspaceOrVersionId`
 - `elementId`
 - `drawingElementId`
 - `assemblyElementId`
@@ -27,7 +29,14 @@ the Onshape context can provide:
 - `submitter`
 
 If only Onshape IDs are supplied, the panel builds the part URL from
-`documentId`, `workspaceId` or `versionId`, `elementId`, and `partId`.
+`documentId`, `workspaceId`, `versionId`, or `workspaceOrVersionId`,
+`elementId`, and `partId`.
+
+Recommended extension action URL:
+
+```text
+https://cheesy-parts.vercel.app/onshape?documentId={$documentId}&workspaceOrVersion={$workspaceOrVersion}&workspaceOrVersionId={$workspaceOrVersionId}&elementId={$elementId}&partId={$partId}&partNumber={$partNumber}
+```
 
 Onshape App Store applications should use OAuth2 for user-authorized API access.
 For internal team use, the panel can be embedded directly and fed metadata from
