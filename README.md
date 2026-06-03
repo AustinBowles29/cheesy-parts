@@ -1,0 +1,72 @@
+Team 254 manufacturing request and tracking MVP.
+
+## What is included
+
+- Onshape-facing submission panel at `/onshape`
+- Queue dashboard at `/`
+- Airtable record creation when Airtable env vars are present
+- Local `.data/requests.json` fallback for development
+- Slack notifications for new submissions, status changes, and 3DP requests
+- Status tracking, queue filters, attachments, and spare request generation
+- Slack `@manufacturing` user-group dropdowns for submitter and acting user
+
+## Setup
+
+```bash
+cp .env.example .env.local
+npm install
+npm run dev
+```
+
+Open [http://localhost:3000](http://localhost:3000).
+
+Required Airtable fields are named to match the project brief:
+
+- Part Name
+- Part Number
+- Quantity
+- Subsystem
+- Category
+- Material
+- Thickness
+- Finish
+- Machine Type
+- Status
+- Onshape Part URL
+- Onshape Drawing URL
+- Assembly URL
+- Branch/Version Reference
+- Submitter
+- Timestamp
+- Drawing
+- DXF
+- Other files
+- Manufacturing Notes
+- Priority
+- Print Material
+- Submitter Slack ID
+- Last Status Changed By
+- Last Status Changed By Slack ID
+- Last Status Change At
+- Audit History
+- Print Color
+- Infill
+- Layer Height
+- Printer Notes
+- Vendor Name
+- Quote Required
+- Lead Time
+- Vendor Notes
+
+Slack user dropdowns use `SLACK_BOT_TOKEN` plus either
+`SLACK_MANUFACTURING_USERGROUP_ID` or `SLACK_MANUFACTURING_USERGROUP_HANDLE`.
+The Slack app needs `usergroups:read` and `users:read`.
+
+## Onshape
+
+See `docs/onshape-panel.md` for supported query parameters and panel wiring.
+
+## Notes
+
+Uploaded files are stored locally for development. For production deployment,
+use durable file storage and pass public file URLs to Airtable attachments.

@@ -1,0 +1,204 @@
+@import "tailwindcss";
+
+:root {
+  --background: #f7faff;
+  --foreground: #141515;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+html,
+body {
+  overflow-y: auto;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
+}
+
+* {
+  scrollbar-width: none;
+}
+
+*::-webkit-scrollbar {
+  display: none;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+.field {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.field span {
+  color: #586158;
+  font-size: 0.78rem;
+  font-weight: 650;
+}
+
+.field input,
+.field select,
+.field textarea {
+  min-height: 2.5rem;
+  width: 100%;
+  border-radius: 0.375rem;
+  border: 1px solid #b8c9e3;
+  background: #fff;
+  padding: 0.5rem 0.65rem;
+  color: #141515;
+  outline: none;
+}
+
+.field input:focus,
+.field select:focus,
+.field textarea:focus {
+  border-color: #0b3d91;
+  box-shadow: 0 0 0 2px rgb(11 61 145 / 18%);
+}
+
+.field input[aria-invalid="true"],
+.field select[aria-invalid="true"],
+.field textarea[aria-invalid="true"] {
+  border-color: #dc2626;
+  box-shadow: 0 0 0 2px rgb(220 38 38 / 18%);
+}
+
+.field.compact input,
+.field.compact select {
+  min-height: 2.35rem;
+}
+
+.interactive {
+  transition:
+    transform 120ms ease,
+    background-color 120ms ease,
+    border-color 120ms ease,
+    box-shadow 120ms ease;
+}
+
+.interactive:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgb(15 23 42 / 8%);
+}
+
+.interactive:active {
+  transform: translateY(0);
+  box-shadow: none;
+}
+
+.icon-action {
+  transition:
+    transform 120ms ease,
+    background-color 120ms ease,
+    border-color 120ms ease,
+    box-shadow 120ms ease;
+}
+
+.icon-action:hover {
+  transform: scale(1.04);
+  border-color: #0b3d91;
+  background: #edf4ff;
+  box-shadow: 0 2px 8px rgb(15 23 42 / 8%);
+}
+
+.icon-action:active {
+  transform: scale(0.98);
+  box-shadow: none;
+}
+
+.page-transition {
+  animation: fadeIn 160ms ease-out;
+}
+
+.toast-enter {
+  animation: toastIn 160ms ease-out;
+}
+
+.toast-exit {
+  animation: toastOut 140ms ease-in forwards;
+}
+
+.toast-progress {
+  bottom: 0;
+  height: 3px;
+  left: 0;
+  position: absolute;
+  transform-origin: left;
+  width: 100%;
+  animation: toastProgress var(--toast-duration) linear forwards;
+}
+
+.toast-enter:hover .toast-progress {
+  animation-play-state: paused;
+}
+
+.scrollable {
+  overflow: auto;
+  scrollbar-width: none;
+}
+
+.scrollable::-webkit-scrollbar {
+  display: none;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes toastIn {
+  from {
+    opacity: 0;
+    transform: translateX(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes toastOut {
+  from {
+    opacity: 1;
+    transform: translateX(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateX(16px);
+  }
+}
+
+@keyframes toastProgress {
+  from {
+    transform: scaleX(1);
+  }
+  to {
+    transform: scaleX(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation: none !important;
+    transition: none !important;
+  }
+}
