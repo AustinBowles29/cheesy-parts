@@ -45,8 +45,35 @@ function matchingChoice<T extends string>(
   return choices.find((choice) => choice.toLowerCase() === normalized);
 }
 
+function normalizedChoiceKey(value: unknown) {
+  return normalizeString(value).toLowerCase();
+}
+
+const statusAliases: Record<string, ManufacturingStatus> = {
+  "ready for mfg": "Ready for Manufacture",
+  "ready for manufacture": "Ready for Manufacture",
+  "ready to manufacture": "Ready for Manufacture",
+  "need to post-process": "Ready for Anodize/Powdercoat",
+  "needs post-process": "Ready for Anodize/Powdercoat",
+  "ready for post-process": "Ready for Anodize/Powdercoat",
+  "to post-process": "Ready for Anodize/Powdercoat",
+};
+
+const machineTypeAliases: Record<string, MachineType> = {
+  "cnc mill": "Mill",
+  "3d print": "3DP",
+  "3d printed": "3DP",
+  "3dp": "3DP",
+  "laser cut": "Laser",
+  "laser cutter": "Laser",
+};
+
 export function coerceStatus(value: unknown): ManufacturingStatus {
-  return matchingChoice(STATUSES, value) ?? DEFAULT_STATUS;
+  return (
+    statusAliases[normalizedChoiceKey(value)] ??
+    matchingChoice(STATUSES, value) ??
+    DEFAULT_STATUS
+  );
 }
 
 export function coerceCategory(value: unknown): Category {
@@ -58,7 +85,10 @@ export function coerceFinish(value: unknown): Finish {
 }
 
 export function coerceMachineType(value: unknown): MachineType | undefined {
-  return matchingChoice(MACHINE_TYPES, value);
+  return (
+    machineTypeAliases[normalizedChoiceKey(value)] ??
+    matchingChoice(MACHINE_TYPES, value)
+  );
 }
 
 export function coercePriority(value: unknown): Priority {
