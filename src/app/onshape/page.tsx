@@ -1,5 +1,9 @@
 import type { Metadata } from "next";
 import { OnshapeSubmissionPanel } from "@/components/onshape-submission-panel";
+import {
+  fetchOnshapePartMetadata,
+  onshapeContextFromParams,
+} from "@/lib/integrations/onshape";
 import { getManufacturingSlackUsers } from "@/lib/integrations/slack-users";
 import {
   inferSubsystemFromTitle,
@@ -24,6 +28,25 @@ function firstParam(value: string | string[] | undefined) {
   }
 
   return trimmed;
+}
+
+function paramsToQueryString(
+  params: Record<string, string | string[] | undefined>,
+) {
+  const searchParams = new URLSearchParams();
+
+  for (const [key, value] of Object.entries(params)) {
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        searchParams.append(key, item);
+      }
+    } else if (value !== undefined) {
+      searchParams.set(key, value);
+    }
+  }
+
+  const queryString = searchParams.toString();
+  return queryString ? `?${queryString}` : "";
 }
 
 function buildOnshapeUrl(
@@ -131,6 +154,19 @@ function defaultsFromSearchParams(
   };
 }
 
+function mergeAutofillDefaults(
+  defaults: SubmissionInput,
+  autofill: SubmissionInput,
+) {
+  return {
+    ...defaults,
+    partName: defaults.partName || autofill.partName,
+    partNumber: defaults.partNumber || autofill.partNumber,
+    material: defaults.material || autofill.material,
+    thickness: defaults.thickness || autofill.thickness,
+  };
+}
+
 export default async function OnshapePage({
   searchParams,
 }: {
@@ -138,11 +174,20 @@ export default async function OnshapePage({
 }) {
   const params = await searchParams;
   const manufacturingUsers = await getManufacturingSlackUsers();
+  const onshapeMetadata = await fetchOnshapePartMetadata(
+    onshapeContextFromParams(params, firstParam),
+    `/onshape${paramsToQueryString(params)}`,
+  );
 
   return (
     <OnshapeSubmissionPanel
-      defaults={defaultsFromSearchParams(params)}
+      defaults={mergeAutofillDefaults(
+        defaultsFromSearchParams(params),
+        onshapeMetadata.defaults,
+      )}
       manufacturingUsers={manufacturingUsers.users}
+      onshapeAuthUrl={onshapeMetadata.authUrl}
+      onshapeWarning={onshapeMetadata.warning}
       userWarning={manufacturingUsers.warning}
     />
   );

@@ -22,6 +22,8 @@ import { ToastViewport, useToasts } from "./toast";
 interface OnshapeSubmissionPanelProps {
   defaults: SubmissionInput;
   manufacturingUsers: SlackUser[];
+  onshapeAuthUrl?: string;
+  onshapeWarning?: string;
   userWarning?: string;
 }
 
@@ -43,34 +45,42 @@ const requiredFields = [
   { name: "priority", label: "Priority" },
 ] as const;
 
-function initialToasts(userWarning?: string) {
-  if (!userWarning) {
-    return [];
-  }
-
-  if (userWarning.toLowerCase().includes("slack")) {
-    return [
-      {
-        variant: "info" as const,
-        title: "Slack not configured",
-        message:
-          "Submissions will still be saved, but Slack notifications will not be sent.",
-      },
-    ];
-  }
-
-  return [
-    {
+function toastForWarning(warning: string) {
+  if (warning.toLowerCase().includes("slack")) {
+    return {
       variant: "info" as const,
-      title: "Integration notice",
-      message: userWarning,
-    },
-  ];
+      title: "Slack not configured",
+      message:
+        "Submissions will still be saved, but Slack notifications will not be sent.",
+    };
+  }
+
+  if (warning.toLowerCase().includes("onshape")) {
+    return {
+      variant: "info" as const,
+      title: "Onshape metadata",
+      message: warning,
+    };
+  }
+
+  return {
+    variant: "info" as const,
+    title: "Integration notice",
+    message: warning,
+  };
+}
+
+function initialToasts(...warnings: Array<string | undefined>) {
+  return warnings
+    .filter((warning): warning is string => Boolean(warning))
+    .map((warning) => toastForWarning(warning));
 }
 
 export function OnshapeSubmissionPanel({
   defaults,
   manufacturingUsers,
+  onshapeAuthUrl,
+  onshapeWarning,
   userWarning,
 }: OnshapeSubmissionPanelProps) {
   const users =
@@ -93,7 +103,9 @@ export function OnshapeSubmissionPanel({
     status: "idle",
   });
   const [invalidFields, setInvalidFields] = useState<Set<string>>(new Set());
-  const { toasts, addToast, dismissToast } = useToasts(initialToasts(userWarning));
+  const { toasts, addToast, dismissToast } = useToasts(
+    initialToasts(userWarning, onshapeAuthUrl ? undefined : onshapeWarning),
+  );
 
   const selectedSubmitter =
     users.find((user) => user.slackUserId === selectedSubmitterId) ?? users[0];
@@ -295,6 +307,30 @@ export function OnshapeSubmissionPanel({
             </div>
           </div>
         </section>
+        {onshapeAuthUrl && (
+          <section className="rounded-lg border border-[#b7cef2] bg-white p-4">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <div className="text-sm font-semibold text-[#0b3d91]">
+                  Onshape metadata
+                </div>
+                <p className="mt-1 text-sm text-[#5c6f8a]">
+                  {onshapeWarning ??
+                    "Connect Onshape to auto-fill part metadata from CAD."}
+                </p>
+              </div>
+              <a
+                href={onshapeAuthUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="interactive inline-flex h-10 items-center justify-center gap-2 rounded-md bg-[#0b3d91] px-3 text-sm font-semibold text-white hover:bg-[#082f6f]"
+              >
+                <LinkIcon size={16} aria-hidden="true" />
+                Connect Onshape
+              </a>
+            </div>
+          </section>
+        )}
         <section className="grid gap-5 lg:grid-cols-[1.2fr_0.8fr]">
           <div className="rounded-lg border border-[#d8e2f0] bg-white p-4">
             <div className="mb-4">

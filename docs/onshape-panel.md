@@ -40,8 +40,25 @@ https://cheesy-parts.vercel.app/onshape?documentId={$documentId}&workspaceOrVers
 
 If Onshape leaves an unsupported replacement token such as `{$partNumber}` in
 the URL, the panel ignores it and leaves that field editable. The embedded
-right-panel context does not currently provide part names directly; full part
-name/material/BOM auto-fill requires Onshape OAuth plus API metadata lookup.
+right-panel context does not currently provide part names directly, so the panel
+uses Onshape OAuth plus API metadata lookup when configured.
+
+OAuth app configuration:
+
+- Redirect URL: `https://cheesy-parts.vercel.app/oauthRedirect`
+- Optional OAuth URL: `https://cheesy-parts.vercel.app/api/onshape/oauth/start`
+
+Vercel environment variables:
+
+```text
+ONSHAPE_CLIENT_ID=
+ONSHAPE_CLIENT_SECRET=
+ONSHAPE_REDIRECT_URI=https://cheesy-parts.vercel.app/oauthRedirect
+```
+
+After a user connects Onshape, the panel fetches the selected Part Studio parts
+from Onshape and fills part name, part number, material, and thickness when the
+API returns those values.
 
 Onshape App Store applications should use OAuth2 for user-authorized API access.
 For internal team use, the panel can be embedded directly and fed metadata from

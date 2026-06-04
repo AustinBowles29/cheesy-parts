@@ -66,6 +66,15 @@ The Slack app needs `usergroups:read` and `users:read`.
 
 See `docs/onshape-panel.md` for supported query parameters and panel wiring.
 
+Onshape OAuth metadata auto-fill uses:
+
+- `ONSHAPE_CLIENT_ID`
+- `ONSHAPE_CLIENT_SECRET`
+- `ONSHAPE_REDIRECT_URI=https://cheesy-parts.vercel.app/oauthRedirect`
+
+When configured, the panel can fetch selected-part metadata from Onshape after a
+user clicks **Connect Onshape** and authorizes the app.
+
 ## Notes
 
 Uploaded files are stored locally for development. For production deployment,
