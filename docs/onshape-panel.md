@@ -60,9 +60,6 @@ AIRTABLE_TABLES=
 AIRTABLE_QUEUE_VIEW=To manufacture
 AIRTABLE_TABLE_ROBOT=
 AIRTABLE_TABLE_SPARES=
-AIRTABLE_TABLE_LAB_GENERAL=
-AIRTABLE_TABLE_OFFSEASON=
-AIRTABLE_TABLE_OTHER=
 AIRTABLE_WEBHOOK_ID=
 AIRTABLE_WEBHOOK_SECRET=
 ONSHAPE_CLIENT_ID=
@@ -93,15 +90,15 @@ choices from all configured Airtable tables for `Subsystem` and
 written back to Airtable.
 
 For multi-table bases, set `AIRTABLE_TABLES` to a comma-separated list of every
-part tracking table ID or exact table name. Keep `AIRTABLE_TABLE_ID` as the
-default fallback table. Route submissions by category with
-`AIRTABLE_TABLE_ROBOT`, `AIRTABLE_TABLE_SPARES`, `AIRTABLE_TABLE_LAB_GENERAL`,
-`AIRTABLE_TABLE_OFFSEASON`, and `AIRTABLE_TABLE_OTHER`, or use
-`AIRTABLE_CATEGORY_TABLE_MAP` with JSON values. When multiple tables are
-configured, the submit panel also shows a `Tracking table` selector for explicit
-manual routing. Queue reads default to the `To manufacture` view so the app
-does not load every historical record in each table. Set `AIRTABLE_QUEUE_VIEW`
-to override that default with another view name or ID.
+part tracking table ID or exact table name. For the current setup, include only
+the main subsystem table and the spares table. Keep `AIRTABLE_TABLE_ID` as the
+default fallback table. Route normal submissions with `AIRTABLE_TABLE_ROBOT` and
+spares with `AIRTABLE_TABLE_SPARES`, or use `AIRTABLE_CATEGORY_TABLE_MAP` with
+JSON values. When multiple tables are configured, the submit panel also shows a
+`Tracking table` selector for explicit manual routing. Queue reads default to
+the `To manufacture` view so the app does not load every historical record in
+each table. Set `AIRTABLE_QUEUE_VIEW` to override that default with another view
+name or ID.
 
 Slack notifications use incoming webhook URLs when configured. If webhook URLs
 are not configured, the app uses Slack `chat.postMessage` with
