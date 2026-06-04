@@ -580,8 +580,6 @@ export async function listAirtableRequests() {
     do {
       const url = new URL(tableUrl(target));
       url.searchParams.set("pageSize", "100");
-      url.searchParams.set("sort[0][field]", "Time Created");
-      url.searchParams.set("sort[0][direction]", "desc");
       if (offset) {
         url.searchParams.set("offset", offset);
       }
