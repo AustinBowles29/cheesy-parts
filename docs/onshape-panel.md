@@ -60,6 +60,10 @@ After a user connects Onshape, the panel fetches the selected Part Studio parts
 from Onshape and fills part name, part number, material, and thickness when the
 API returns those values.
 
+If selected-part metadata has no part number, the panel looks through Assembly
+BOMs in the same document and uses the first matching BOM part number. Matching
+uses `partId` first because it is more precise, then falls back to part name.
+
 Onshape App Store applications should use OAuth2 for user-authorized API access.
 For internal team use, the panel can be embedded directly and fed metadata from
 Onshape context or a lightweight browser extension until OAuth is wired in.

@@ -43,11 +43,19 @@ interface OnshapeMetadata {
   properties?: OnshapeMetadataProperty[];
 }
 
+interface OnshapeElement {
+  id?: string;
+  name?: string;
+  type?: string;
+  elementType?: string;
+}
+
 export interface OnshapeContext {
   documentId: string;
   wvm: "w" | "v" | "m";
   wvmId: string;
   elementId: string;
+  assemblyElementId?: string;
   partId: string;
 }
 
@@ -221,6 +229,8 @@ export function onshapeContextFromParams(
     firstParam(params.mid) ??
     (workspaceOrVersion?.startsWith("m") ? workspaceOrVersionId : undefined);
   const elementId = firstParam(params.elementId) ?? firstParam(params.eid);
+  const assemblyElementId =
+    firstParam(params.assemblyElementId) ?? firstParam(params.aeid);
   const partId = firstParam(params.partId) ?? firstParam(params.pid);
   const wvmId = workspaceId ?? versionId ?? microversionId;
 
@@ -230,11 +240,436 @@ export function onshapeContextFromParams(
 
   return {
     documentId,
+    assemblyElementId,
     elementId,
     partId: partId ?? "",
     wvm: versionId ? "v" : microversionId ? "m" : "w",
     wvmId,
   };
+}
+
+function normalizedComparable(value: string): string {
+  return value
+    .replace(/\s*<\d+>\s*$/g, "")
+    .trim()
+    .toLowerCase();
+}
+
+function propertyLabel(property: Record<string, unknown>): string {
+  return normalizeString(
+    property.name ??
+      property.displayName ??
+      property.propertyName ??
+      property.columnName ??
+      property.header ??
+      property.label ??
+      property.propertyId,
+  )
+    .replace(/[^a-z0-9]/gi, "")
+    .toLowerCase();
+}
+
+function propertyValue(property: Record<string, unknown>): string {
+  return normalizeString(
+    property.value ??
+      property.displayValue ??
+      property.computedValue ??
+      property.cellValue ??
+      property.text,
+  );
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+
+  return value as Record<string, unknown>;
+}
+
+function objectValues(value: unknown): unknown[] {
+  if (!value || typeof value !== "object") {
+    return [];
+  }
+
+  if (Array.isArray(value)) {
+    return value;
+  }
+
+  return Object.values(value);
+}
+
+function normalizedPropertyKey(value: string): string {
+  return value.replace(/[^a-z0-9]/gi, "").toLowerCase();
+}
+
+function isPartNumberLabel(value: string): boolean {
+  const normalized = normalizedPropertyKey(value);
+  return (
+    normalized === "partnumber" ||
+    normalized === "partno" ||
+    normalized === "partnum"
+  );
+}
+
+function includesString(value: unknown, expected: string): boolean {
+  if (!expected) {
+    return false;
+  }
+
+  if (typeof value === "string") {
+    return value === expected;
+  }
+
+  return objectValues(value).some((item) => includesString(item, expected));
+}
+
+function includesName(value: unknown, expectedName: string): boolean {
+  if (!expectedName) {
+    return false;
+  }
+
+  if (typeof value === "string") {
+    return normalizedComparable(value) === normalizedComparable(expectedName);
+  }
+
+  return objectValues(value).some((item) => includesName(item, expectedName));
+}
+
+function cellString(value: unknown): string {
+  if (typeof value === "string" || typeof value === "number") {
+    return normalizeString(value);
+  }
+
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const found = cellString(item);
+      if (found) {
+        return found;
+      }
+    }
+
+    return "";
+  }
+
+  const record = asRecord(value);
+  if (!record) {
+    return "";
+  }
+
+  return normalizeString(
+    record.value ??
+      record.displayValue ??
+      record.computedValue ??
+      record.cellValue ??
+      record.text,
+  );
+}
+
+function directPartNumber(value: unknown): string {
+  const record = asRecord(value);
+  if (!record) {
+    return "";
+  }
+
+  for (const [key, item] of Object.entries(record)) {
+    if (isPartNumberLabel(key)) {
+      const found = cellString(item);
+      if (found && !isPartNumberLabel(found)) {
+        return found;
+      }
+    }
+  }
+
+  return "";
+}
+
+function propertyPartNumber(value: unknown): string {
+  if (!value || typeof value !== "object") {
+    return "";
+  }
+
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const found = propertyPartNumber(item);
+      if (found) {
+        return found;
+      }
+    }
+
+    return "";
+  }
+
+  const record = value as Record<string, unknown>;
+  const label = propertyLabel(record);
+  if (isPartNumberLabel(label)) {
+    const found = propertyValue(record);
+    return found && !isPartNumberLabel(found) ? found : "";
+  }
+
+  for (const item of Object.values(record)) {
+    const found = propertyPartNumber(item);
+    if (found) {
+      return found;
+    }
+  }
+
+  return "";
+}
+
+function partNumberFromNode(value: unknown): string {
+  return directPartNumber(value) || propertyPartNumber(value);
+}
+
+function bomTableFromResponse(bom: unknown): Record<string, unknown> | null {
+  const record = asRecord(bom);
+  return asRecord(record?.bomTable) ?? record;
+}
+
+function partNumberHeaderKeys(bom: unknown): string[] {
+  const table = bomTableFromResponse(bom);
+  const keys = new Set(["partNumber", "Part Number", "partNo", "Part No"]);
+  const headers = Array.isArray(table?.headers) ? table.headers : [];
+
+  for (const header of headers) {
+    const record = asRecord(header);
+    if (!record) {
+      continue;
+    }
+
+    const labels = [
+      normalizeString(record.propertyName),
+      normalizeString(record.name),
+      normalizeString(record.propertyId),
+    ].filter(Boolean);
+
+    if (!labels.some(isPartNumberLabel)) {
+      continue;
+    }
+
+    for (const label of labels) {
+      keys.add(label);
+    }
+  }
+
+  return Array.from(keys);
+}
+
+function valueFromRecordKeys(
+  record: Record<string, unknown>,
+  keys: string[],
+): string {
+  for (const key of keys) {
+    const value =
+      record[key] ??
+      asRecord(record.otherProperties)?.[key] ??
+      asRecord(record.values)?.[key] ??
+      asRecord(record.columnValues)?.[key];
+    const found = cellString(value);
+    if (found && !isPartNumberLabel(found)) {
+      return found;
+    }
+  }
+
+  return "";
+}
+
+function rowPartId(row: Record<string, unknown>): string {
+  const itemSource = asRecord(row.itemSource);
+  const partIdentity = asRecord(row.partIdentity);
+  const source = asRecord(row.source);
+
+  return normalizeString(
+    row.partId ?? itemSource?.partId ?? partIdentity?.partId ?? source?.partId,
+  );
+}
+
+function rowPartName(row: Record<string, unknown>): string {
+  const itemSource = asRecord(row.itemSource);
+  const partIdentity = asRecord(row.partIdentity);
+  const source = asRecord(row.source);
+
+  return normalizeString(
+    row.partName ??
+      row.name ??
+      itemSource?.partName ??
+      itemSource?.name ??
+      partIdentity?.partName ??
+      partIdentity?.name ??
+      source?.partName ??
+      source?.name,
+  );
+}
+
+function rowMatchesPartId(row: Record<string, unknown>, partId: string): boolean {
+  const rowId = rowPartId(row);
+  return rowId ? rowId === partId : includesString(row, partId);
+}
+
+function rowMatchesPartName(
+  row: Record<string, unknown>,
+  partName: string,
+): boolean {
+  const rowName = rowPartName(row);
+  if (rowName) {
+    return normalizedComparable(rowName) === normalizedComparable(partName);
+  }
+
+  return includesName(row, partName);
+}
+
+function partNumberFromRow(
+  row: Record<string, unknown>,
+  headerKeys: string[],
+): string {
+  return valueFromRecordKeys(row, headerKeys) || partNumberFromNode(row);
+}
+
+function collectBomItemRows(
+  value: unknown,
+  rows: Record<string, unknown>[] = [],
+): Record<string, unknown>[] {
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      collectBomItemRows(item, rows);
+    }
+
+    return rows;
+  }
+
+  const record = asRecord(value);
+  if (!record) {
+    return rows;
+  }
+
+  if (record.itemSource || record.partIdentity || rowPartId(record)) {
+    rows.push(record);
+  }
+
+  for (const item of Object.values(record)) {
+    collectBomItemRows(item, rows);
+  }
+
+  return rows;
+}
+
+function bomItemRows(bom: unknown): Record<string, unknown>[] {
+  const table = bomTableFromResponse(bom);
+  const items = table?.items;
+
+  if (Array.isArray(items)) {
+    return items.flatMap((item) => {
+      const record = asRecord(item);
+      return record ? [record] : [];
+    });
+  }
+
+  return collectBomItemRows(bom);
+}
+
+function findBomPartNumber(input: {
+  bom: unknown;
+  partId: string;
+  partName: string;
+}): string {
+  const rows = bomItemRows(input.bom);
+  const headerKeys = partNumberHeaderKeys(input.bom);
+
+  if (input.partId) {
+    for (const row of rows) {
+      if (!rowMatchesPartId(row, input.partId)) {
+        continue;
+      }
+
+      const partNumber = partNumberFromRow(row, headerKeys);
+      if (partNumber) {
+        return partNumber;
+      }
+    }
+  }
+
+  if (input.partName) {
+    for (const row of rows) {
+      if (!rowMatchesPartName(row, input.partName)) {
+        continue;
+      }
+
+      const partNumber = partNumberFromRow(row, headerKeys);
+      if (partNumber) {
+        return partNumber;
+      }
+    }
+  }
+
+  return "";
+}
+
+async function fetchAssemblyElements(
+  context: OnshapeContext,
+  accessToken: string,
+): Promise<OnshapeElement[]> {
+  if (context.assemblyElementId) {
+    return [{ id: context.assemblyElementId }];
+  }
+
+  const elements = await onshapeFetchJson<OnshapeElement[]>(
+    `/v10/documents/d/${context.documentId}/${context.wvm}/${context.wvmId}/elements`,
+    accessToken,
+  );
+
+  return elements.filter((element) => {
+    const elementType = normalizeString(element.elementType).toUpperCase();
+    const type = normalizeString(element.type).toUpperCase();
+    return elementType === "ASSEMBLY" || type === "ASSEMBLY";
+  });
+}
+
+async function fetchBom(
+  accessToken: string,
+  context: OnshapeContext,
+  elementId: string,
+): Promise<unknown> {
+  const endpoint = `/v10/assemblies/d/${context.documentId}/${context.wvm}/${context.wvmId}/e/${elementId}/bom`;
+  return onshapeFetchJson<unknown>(endpoint, accessToken);
+}
+
+async function fetchBomPartNumber(input: {
+  accessToken: string;
+  context: OnshapeContext;
+  part: OnshapePart | null;
+  partName: string;
+}): Promise<string> {
+  const partId = input.context.partId || normalizeString(input.part?.partId);
+  const partName = input.partName || normalizeString(input.part?.name);
+  if (!partId && !partName) {
+    return "";
+  }
+
+  let assemblies: OnshapeElement[] = [];
+  try {
+    assemblies = await fetchAssemblyElements(input.context, input.accessToken);
+  } catch {
+    return "";
+  }
+
+  for (const assembly of assemblies) {
+    const assemblyElementId = normalizeString(assembly.id);
+    if (!assemblyElementId) {
+      continue;
+    }
+
+    try {
+      const bom = await fetchBom(input.accessToken, input.context, assemblyElementId);
+      const partNumber = findBomPartNumber({ bom, partId, partName });
+      if (partNumber) {
+        return partNumber;
+      }
+    } catch {
+      continue;
+    }
+  }
+
+  return "";
 }
 
 async function onshapeFetchJson<T>(path: string, accessToken: string) {
@@ -385,7 +820,21 @@ export async function fetchOnshapePartMetadata(
       }
     }
 
-    return { defaults: partToDefaults(part, metadata) };
+    const defaults = partToDefaults(part, metadata);
+    if (!defaults.partNumber) {
+      const bomPartNumber = await fetchBomPartNumber({
+        accessToken,
+        context,
+        part,
+        partName: defaults.partName ?? "",
+      });
+
+      if (bomPartNumber) {
+        defaults.partNumber = bomPartNumber;
+      }
+    }
+
+    return { defaults };
   } catch (error) {
     return {
       defaults: {},
