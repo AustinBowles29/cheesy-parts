@@ -31,6 +31,7 @@ interface SlackUserInfoResponse extends SlackApiResponse {
 }
 
 const slackApiBase = "https://slack.com/api";
+const defaultUsergroupHandles = ["design", "design-rooks"];
 
 function slackToken() {
   return process.env.SLACK_BOT_TOKEN;
@@ -92,25 +93,45 @@ async function slackFetch<T extends SlackApiResponse>(
   return body;
 }
 
-async function resolveManufacturingUsergroupId() {
+function configuredUsergroupValues(envValue: string | undefined, defaults: string[]) {
+  const values = envValue
+    ? envValue
+        .split(",")
+        .map((value) => value.trim().replace(/^@/, ""))
+        .filter(Boolean)
+    : defaults;
+
+  return Array.from(new Set(values));
+}
+
+async function resolveManufacturingUsergroupIds() {
   const explicitId = process.env.SLACK_MANUFACTURING_USERGROUP_ID;
   if (explicitId) {
-    return explicitId;
+    return configuredUsergroupValues(explicitId, []);
   }
 
-  const handle = (
-    process.env.SLACK_MANUFACTURING_USERGROUP_HANDLE ?? "design"
-  ).replace(/^@/, "");
-  const response = await slackFetch<SlackUsergroupListResponse>("usergroups.list");
-  const usergroup = response.usergroups?.find(
-    (item) => item.handle === handle || item.name === handle,
+  const handles = configuredUsergroupValues(
+    process.env.SLACK_MANUFACTURING_USERGROUP_HANDLE,
+    defaultUsergroupHandles,
   );
+  const response = await slackFetch<SlackUsergroupListResponse>("usergroups.list");
+  const usergroups = handles.map((handle) => {
+    const usergroup = response.usergroups?.find(
+      (item) => item.handle === handle || item.name === handle,
+    );
 
-  if (!usergroup) {
-    throw new Error(`Slack user group @${handle} was not found.`);
+    if (!usergroup) {
+      throw new Error(`Slack user group @${handle} was not found.`);
+    }
+
+    return usergroup.id;
+  });
+
+  if (usergroups.length === 0) {
+    throw new Error("No Slack user groups were configured.");
   }
 
-  return usergroup.id;
+  return Array.from(new Set(usergroups));
 }
 
 async function getSlackUser(userId: string): Promise<SlackUser | null> {
@@ -136,17 +157,25 @@ async function getSlackUser(userId: string): Promise<SlackUser | null> {
 
 export async function getManufacturingSlackUsers() {
   try {
-    const usergroup = await resolveManufacturingUsergroupId();
-    const response = await slackFetch<SlackUsergroupUsersResponse>(
-      "usergroups.users.list",
-      {
-        usergroup,
-        include_disabled: false,
-      },
-    );
+    const usergroupIds = await resolveManufacturingUsergroupIds();
+    const userIds = new Set<string>();
+
+    for (const usergroup of usergroupIds) {
+      const response = await slackFetch<SlackUsergroupUsersResponse>(
+        "usergroups.users.list",
+        {
+          usergroup,
+          include_disabled: false,
+        },
+      );
+
+      for (const userId of response.users ?? []) {
+        userIds.add(userId);
+      }
+    }
 
     const users = await Promise.all(
-      (response.users ?? []).map((userId) => getSlackUser(userId)),
+      Array.from(userIds).map((userId) => getSlackUser(userId)),
     );
     const activeUsers = users
       .filter((user): user is SlackUser => Boolean(user))

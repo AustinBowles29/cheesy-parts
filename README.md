@@ -8,7 +8,7 @@ Team 254 manufacturing request and tracking MVP.
 - Local `.data/requests.json` fallback for development
 - Slack notifications for new submissions, status changes, and 3DP requests
 - Status tracking, queue filters, attachments, and spare request generation
-- Slack `@design` user-group dropdowns for submitter and acting user
+- Slack `@design` and `@design-rooks` user-group dropdowns for submitter and acting user
 
 ## Setup
 
@@ -60,7 +60,9 @@ Required Airtable fields are named to match the project brief:
 
 Slack user dropdowns use `SLACK_BOT_TOKEN` plus either
 `SLACK_MANUFACTURING_USERGROUP_ID` or `SLACK_MANUFACTURING_USERGROUP_HANDLE`.
-The Slack app needs `usergroups:read` and `users:read`.
+Both values can be comma-separated when multiple groups should be merged, for
+example `SLACK_MANUFACTURING_USERGROUP_HANDLE=design,design-rooks`. The Slack
+app needs `usergroups:read` and `users:read`.
 
 ## Onshape
 
