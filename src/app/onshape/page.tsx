@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { OnshapeSubmissionPanel } from "@/components/onshape-submission-panel";
+import { getAirtableSubmissionFieldOptions } from "@/lib/integrations/airtable";
 import {
   fetchOnshapePartMetadata,
   onshapeContextFromParams,
@@ -117,6 +118,7 @@ function defaultsFromSearchParams(
       firstParam(params.number) ??
       firstParam(params.partNo) ??
       "",
+    description: firstParam(params.description) ?? "",
     material,
     thickness,
     quantity: normalizeQuantity(firstParam(params.quantity) ?? 1),
@@ -162,6 +164,7 @@ function mergeAutofillDefaults(
     ...defaults,
     partName: defaults.partName || autofill.partName,
     partNumber: defaults.partNumber || autofill.partNumber,
+    description: defaults.description || autofill.description,
     material: defaults.material || autofill.material,
     thickness: defaults.thickness || autofill.thickness,
   };
@@ -173,11 +176,14 @@ export default async function OnshapePage({
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const params = await searchParams;
-  const manufacturingUsers = await getManufacturingSlackUsers();
-  const onshapeMetadata = await fetchOnshapePartMetadata(
-    onshapeContextFromParams(params, firstParam),
-    `/onshape${paramsToQueryString(params)}`,
-  );
+  const [manufacturingUsers, onshapeMetadata, fieldOptions] = await Promise.all([
+    getManufacturingSlackUsers(),
+    fetchOnshapePartMetadata(
+      onshapeContextFromParams(params, firstParam),
+      `/onshape${paramsToQueryString(params)}`,
+    ),
+    getAirtableSubmissionFieldOptions(),
+  ]);
 
   return (
     <OnshapeSubmissionPanel
@@ -185,6 +191,7 @@ export default async function OnshapePage({
         defaultsFromSearchParams(params),
         onshapeMetadata.defaults,
       )}
+      fieldOptions={fieldOptions}
       manufacturingUsers={manufacturingUsers.users}
       onshapeAuthUrl={onshapeMetadata.authUrl}
       onshapeWarning={onshapeMetadata.warning}

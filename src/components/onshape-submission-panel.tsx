@@ -16,11 +16,17 @@ import {
   PRIORITIES,
 } from "@/lib/constants";
 import { deriveMachineType } from "@/lib/manufacturing";
-import type { MachineType, SlackUser, SubmissionInput } from "@/lib/types";
+import type {
+  MachineType,
+  SlackUser,
+  SubmissionFieldOptions,
+  SubmissionInput,
+} from "@/lib/types";
 import { ToastViewport, useToasts } from "./toast";
 
 interface OnshapeSubmissionPanelProps {
   defaults: SubmissionInput;
+  fieldOptions: SubmissionFieldOptions;
   manufacturingUsers: SlackUser[];
   onshapeAuthUrl?: string;
   onshapeWarning?: string;
@@ -76,8 +82,18 @@ function initialToasts(...warnings: Array<string | undefined>) {
     .map((warning) => toastForWarning(warning));
 }
 
+function dropdownInitialValue(value: string | undefined, options: string[]) {
+  const trimmed = value?.trim() ?? "";
+  if (!trimmed || options.length === 0) {
+    return trimmed;
+  }
+
+  return options.includes(trimmed) ? trimmed : "";
+}
+
 export function OnshapeSubmissionPanel({
   defaults,
+  fieldOptions,
   manufacturingUsers,
   onshapeAuthUrl,
   onshapeWarning,
@@ -95,7 +111,12 @@ export function OnshapeSubmissionPanel({
   const [partNumber, setPartNumber] = useState(defaults.partNumber ?? "");
   const [material, setMaterial] = useState(defaults.material ?? "");
   const [thickness, setThickness] = useState(defaults.thickness ?? "");
-  const [subsystem, setSubsystem] = useState(defaults.subsystem ?? "");
+  const [subsystem, setSubsystem] = useState(() =>
+    dropdownInitialValue(defaults.subsystem, fieldOptions.subsystems),
+  );
+  const [vendorName, setVendorName] = useState(() =>
+    dropdownInitialValue(defaults.vendorName, fieldOptions.vendors),
+  );
   const [hasDrawing, setHasDrawing] = useState(false);
   const [hasDxf, setHasDxf] = useState(false);
   const [machineOverride, setMachineOverride] = useState(defaults.machineType ?? "");
@@ -104,7 +125,11 @@ export function OnshapeSubmissionPanel({
   });
   const [invalidFields, setInvalidFields] = useState<Set<string>>(new Set());
   const { toasts, addToast, dismissToast } = useToasts(
-    initialToasts(userWarning, onshapeAuthUrl ? undefined : onshapeWarning),
+    initialToasts(
+      userWarning,
+      onshapeAuthUrl ? undefined : onshapeWarning,
+      fieldOptions.warning,
+    ),
   );
 
   const selectedSubmitter =
@@ -370,6 +395,15 @@ export function OnshapeSubmissionPanel({
                   {...invalidProps("partNumber")}
                 />
               </label>
+              <label className="field sm:col-span-2">
+                <span>Description</span>
+                <textarea
+                  name="description"
+                  defaultValue={defaults.description}
+                  rows={3}
+                  placeholder="Short design or usage description"
+                />
+              </label>
               <label className="field">
                 <span>Material</span>
                 <input
@@ -406,11 +440,26 @@ export function OnshapeSubmissionPanel({
               </label>
               <label className="field">
                 <span>Subsystem</span>
-                <input
-                  name="subsystem"
-                  value={subsystem}
-                  onChange={(event) => setSubsystem(event.target.value)}
-                />
+                {fieldOptions.subsystems.length > 0 ? (
+                  <select
+                    name="subsystem"
+                    value={subsystem}
+                    onChange={(event) => setSubsystem(event.target.value)}
+                  >
+                    <option value="">Select subsystem</option>
+                    {fieldOptions.subsystems.map((option) => (
+                      <option key={option} value={option}>
+                        {option}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <input
+                    name="subsystem"
+                    value={subsystem}
+                    onChange={(event) => setSubsystem(event.target.value)}
+                  />
+                )}
               </label>
               <label className="field">
                 <span>Machine type</span>
@@ -638,7 +687,26 @@ export function OnshapeSubmissionPanel({
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
               <label className="field">
                 <span>Vendor name</span>
-                <input name="vendorName" defaultValue={defaults.vendorName} />
+                {fieldOptions.vendors.length > 0 ? (
+                  <select
+                    name="vendorName"
+                    value={vendorName}
+                    onChange={(event) => setVendorName(event.target.value)}
+                  >
+                    <option value="">Select vendor</option>
+                    {fieldOptions.vendors.map((option) => (
+                      <option key={option} value={option}>
+                        {option}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <input
+                    name="vendorName"
+                    value={vendorName}
+                    onChange={(event) => setVendorName(event.target.value)}
+                  />
+                )}
               </label>
               <label className="field">
                 <span>Quote required?</span>

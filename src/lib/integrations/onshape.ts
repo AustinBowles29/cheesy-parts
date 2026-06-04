@@ -757,6 +757,9 @@ function partToDefaults(
 
   return {
     material,
+    description:
+      metadataPropertyValue(metadata, ["Description", "description"]) ||
+      normalizeString(part?.description),
     partName:
       metadataPropertyValue(metadata, ["Name", "name"]) ||
       normalizeString(metadata?.name) ||
@@ -764,9 +767,6 @@ function partToDefaults(
     partNumber:
       metadataPropertyValue(metadata, ["Part number", "Part Number", "partNumber"]) ||
       normalizeString(part?.partNumber),
-    thickness:
-      metadataPropertyValue(metadata, ["Thickness", "thickness"]) ||
-      customPropertyValue(part?.customProperties, ["Thickness", "thickness"]),
   };
 }
 
@@ -790,7 +790,7 @@ export async function fetchOnshapePartMetadata(
     return {
       defaults: {},
       authUrl: onshapeOAuthStartUrl(returnTo),
-      warning: "Connect Onshape to auto-fill part name, part number, material, and thickness.",
+      warning: "Connect Onshape to auto-fill part name, part number, material, and description.",
     };
   }
 

@@ -51,6 +51,7 @@ export interface ManufacturingRequest {
   airtableUrl?: string;
   partName: string;
   partNumber: string;
+  description: string;
   quantity: number;
   subsystem: string;
   category: Category;
@@ -85,6 +86,7 @@ export interface ManufacturingRequest {
 export interface SubmissionInput {
   partName?: string;
   partNumber?: string;
+  description?: string;
   quantity?: number | string;
   subsystem?: string;
   category?: string;
@@ -113,6 +115,12 @@ export interface SubmissionInput {
   leadTime?: string;
   vendorNotes?: string;
   sourceDocument?: string;
+}
+
+export interface SubmissionFieldOptions {
+  subsystems: string[];
+  vendors: string[];
+  warning?: string;
 }
 
 export interface ServiceResult<T> {

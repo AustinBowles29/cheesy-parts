@@ -7,6 +7,7 @@ the Onshape context can provide:
 
 - `partName`
 - `partNumber`
+- `description`
 - `material`
 - `thickness`
 - `quantity`
@@ -51,18 +52,30 @@ OAuth app configuration:
 Vercel environment variables:
 
 ```text
+AIRTABLE_PERSONAL_ACCESS_TOKEN=
+AIRTABLE_BASE_ID=
+AIRTABLE_TABLE_ID=
 ONSHAPE_CLIENT_ID=
 ONSHAPE_CLIENT_SECRET=
 ONSHAPE_REDIRECT_URI=https://cheesy-parts.vercel.app/oauthRedirect
 ```
 
 After a user connects Onshape, the panel fetches the selected Part Studio parts
-from Onshape and fills part name, part number, material, and thickness when the
+from Onshape and fills part name, part number, material, and description when the
 API returns those values.
 
 If selected-part metadata has no part number, the panel looks through Assembly
 BOMs in the same document and uses the first matching BOM part number. Matching
 uses `partId` first because it is more precise, then falls back to part name.
+
+Thickness is intentionally left as a designer-reviewed field. The app does not
+estimate thickness from geometry because many submitted parts are not flat plate
+parts.
+
+If the Airtable token includes schema read access, the panel reads select-field
+choices from Airtable for `Subsystem` and `Vendor Name`/`Vendor` and uses those
+as dropdown options. Add a `Description` field to the manufacturing table if
+descriptions should be written back to Airtable.
 
 Onshape App Store applications should use OAuth2 for user-authorized API access.
 For internal team use, the panel can be embedded directly and fed metadata from

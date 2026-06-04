@@ -124,6 +124,7 @@ export function QueueDashboard({
       const searchTarget = [
         request.partName,
         request.partNumber,
+        request.description,
         request.subsystem,
         request.material,
         request.machineType,
@@ -455,6 +456,11 @@ export function QueueDashboard({
                   >
                     <td className="px-3 py-3">
                       <div className="font-medium">{request.partName}</div>
+                      {request.description && (
+                        <div className="mt-1 max-w-56 text-xs text-[#5c6f8a]">
+                          {request.description}
+                        </div>
+                      )}
                       <div className="mt-1 text-xs text-[#586158]">
                         {request.submitter || "Unknown submitter"}
                       </div>

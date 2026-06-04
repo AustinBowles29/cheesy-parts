@@ -6,7 +6,12 @@ import {
   normalizeQuantity,
   normalizeString,
 } from "../manufacturing";
-import type { AttachmentRef, AuditEntry, ManufacturingRequest } from "../types";
+import type {
+  AttachmentRef,
+  AuditEntry,
+  ManufacturingRequest,
+  SubmissionFieldOptions,
+} from "../types";
 
 interface AirtableRecord {
   id: string;
@@ -17,6 +22,29 @@ interface AirtableRecord {
 interface AirtableListResponse {
   records: AirtableRecord[];
   offset?: string;
+}
+
+interface AirtableSchemaChoice {
+  name?: string;
+}
+
+interface AirtableFieldSchema {
+  id: string;
+  name: string;
+  type: string;
+  options?: {
+    choices?: AirtableSchemaChoice[];
+  };
+}
+
+interface AirtableTableSchema {
+  id: string;
+  name: string;
+  fields: AirtableFieldSchema[];
+}
+
+interface AirtableBaseSchemaResponse {
+  tables: AirtableTableSchema[];
 }
 
 const apiBase = "https://api.airtable.com/v0";
@@ -36,6 +64,10 @@ function tableIdOrName() {
 }
 
 export function isAirtableConfigured() {
+  return Boolean(token() && baseId() && tableIdOrName());
+}
+
+function isAirtableSchemaConfigured() {
   return Boolean(token() && baseId() && tableIdOrName());
 }
 
@@ -73,6 +105,7 @@ async function airtableFetch<T>(url: string, init?: RequestInit): Promise<T> {
 
   const response = await fetch(url, {
     ...init,
+    cache: init?.cache ?? "no-store",
     headers: {
       Authorization: `Bearer ${apiToken}`,
       "Content-Type": "application/json",
@@ -86,6 +119,81 @@ async function airtableFetch<T>(url: string, init?: RequestInit): Promise<T> {
   }
 
   return (await response.json()) as T;
+}
+
+function uniqueSorted(values: string[]) {
+  return Array.from(new Set(values.filter(Boolean))).sort((a, b) =>
+    a.localeCompare(b),
+  );
+}
+
+function configuredTable(
+  schema: AirtableBaseSchemaResponse,
+): AirtableTableSchema | undefined {
+  const table = tableIdOrName();
+  return schema.tables.find((item) => item.id === table || item.name === table);
+}
+
+function fieldByName(
+  table: AirtableTableSchema | undefined,
+  names: string[],
+): AirtableFieldSchema | undefined {
+  const normalizedNames = names.map((name) => name.toLowerCase());
+  return table?.fields.find((field) =>
+    normalizedNames.includes(field.name.toLowerCase()),
+  );
+}
+
+function fieldChoices(field: AirtableFieldSchema | undefined) {
+  if (
+    field?.type !== "singleSelect" &&
+    field?.type !== "multipleSelects" &&
+    field?.type !== "singleSelects"
+  ) {
+    return [];
+  }
+
+  return uniqueSorted(
+    (field.options?.choices ?? []).map((choice) => normalizeString(choice.name)),
+  );
+}
+
+export async function getAirtableSubmissionFieldOptions(): Promise<SubmissionFieldOptions> {
+  if (!isAirtableSchemaConfigured()) {
+    return { subsystems: [], vendors: [] };
+  }
+
+  try {
+    const base = baseId();
+    const schema = await airtableFetch<AirtableBaseSchemaResponse>(
+      `${apiBase}/meta/bases/${base}/tables`,
+    );
+    const table = configuredTable(schema);
+
+    if (!table) {
+      return {
+        subsystems: [],
+        vendors: [],
+        warning: "Airtable table was not found, so dropdown options were not loaded.",
+      };
+    }
+
+    return {
+      subsystems: fieldChoices(fieldByName(table, ["Subsystem", "Subsystems"])),
+      vendors: fieldChoices(
+        fieldByName(table, ["Vendor Name", "Vendor", "COTS Vendor"]),
+      ),
+    };
+  } catch (error) {
+    return {
+      subsystems: [],
+      vendors: [],
+      warning:
+        error instanceof Error
+          ? `Airtable dropdown options could not be loaded: ${error.message}`
+          : "Airtable dropdown options could not be loaded.",
+    };
+  }
 }
 
 function attachmentFields(
@@ -109,6 +217,7 @@ function requestToFields(request: ManufacturingRequest) {
   return {
     "Part Name": request.partName,
     "Part Number": request.partNumber,
+    Description: request.description || undefined,
     Quantity: request.quantity,
     Subsystem: request.subsystem,
     Category: request.category,
@@ -169,6 +278,7 @@ export function mapAirtableRecord(record: AirtableRecord): ManufacturingRequest 
     airtableUrl: airtableRecordUrl(record.id),
     partName: fieldString(fields, "Part Name"),
     partNumber: fieldString(fields, "Part Number"),
+    description: fieldString(fields, "Description"),
     quantity: fieldNumber(fields, "Quantity"),
     subsystem: fieldString(fields, "Subsystem"),
     category: coerceCategory(fields.Category),
