@@ -141,26 +141,7 @@ function tableTargetFromValue(value?: string): AirtableTableTarget | undefined {
   return { value: normalized, airtableTableName: normalized };
 }
 
-export function resolveAirtableTableTarget(
-  hint: AirtableTableHint = {},
-): AirtableTableTarget | undefined {
-  return (
-    tableTargetFromValue(hint.airtableTableId ?? hint.tableId) ??
-    tableTargetFromValue(hint.airtableTableName ?? hint.tableName) ??
-    tableTargetFromValue(
-      hint.category ? categoryTableMap().get(coerceCategory(hint.category)) : "",
-    ) ??
-    tableTargetFromValue(tableIdOrName())
-  );
-}
-
-function configuredTableTargets() {
-  const values = [
-    tableIdOrName(),
-    ...splitEnvList(process.env.AIRTABLE_TABLES),
-    ...splitEnvList(process.env.AIRTABLE_TABLE_NAMES),
-    ...Array.from(categoryTableMap().values()),
-  ];
+function tableTargetsFromValues(values: Array<string | undefined>) {
   const seen = new Set<string>();
   const targets: AirtableTableTarget[] = [];
 
@@ -177,8 +158,52 @@ function configuredTableTargets() {
   return targets;
 }
 
-async function configuredCanonicalTableTargets() {
-  const targets = configuredTableTargets();
+export function resolveAirtableTableTarget(
+  hint: AirtableTableHint = {},
+): AirtableTableTarget | undefined {
+  return (
+    tableTargetFromValue(hint.airtableTableId ?? hint.tableId) ??
+    tableTargetFromValue(hint.airtableTableName ?? hint.tableName) ??
+    tableTargetFromValue(
+      hint.category ? categoryTableMap().get(coerceCategory(hint.category)) : "",
+    ) ??
+    tableTargetFromValue(tableIdOrName())
+  );
+}
+
+function configuredTableTargets() {
+  return tableTargetsFromValues([
+    tableIdOrName(),
+    ...splitEnvList(process.env.AIRTABLE_TABLES),
+    ...splitEnvList(process.env.AIRTABLE_TABLE_NAMES),
+    ...Array.from(categoryTableMap().values()),
+  ]);
+}
+
+function configuredQueueTableTargets() {
+  const explicitQueueValues = [
+    ...splitEnvList(process.env.AIRTABLE_QUEUE_TABLES),
+    ...splitEnvList(process.env.AIRTABLE_QUEUE_TABLE_NAMES),
+  ];
+
+  if (explicitQueueValues.length > 0) {
+    return tableTargetsFromValues(explicitQueueValues);
+  }
+
+  const explicitTableValues = [
+    ...splitEnvList(process.env.AIRTABLE_TABLES),
+    ...splitEnvList(process.env.AIRTABLE_TABLE_NAMES),
+  ];
+
+  if (explicitTableValues.length > 0) {
+    return tableTargetsFromValues([tableIdOrName(), ...explicitTableValues]);
+  }
+
+  return configuredTableTargets();
+}
+
+async function configuredCanonicalQueueTableTargets() {
+  const targets = configuredQueueTableTargets();
   const needsSchema = targets.some((target) => target.airtableTableName);
 
   if (!needsSchema) {
@@ -626,7 +651,7 @@ export async function createAirtableRecord(request: ManufacturingRequest) {
 export async function listAirtableRequests() {
   const requests: ManufacturingRequest[] = [];
 
-  for (const target of await configuredCanonicalTableTargets()) {
+  for (const target of await configuredCanonicalQueueTableTargets()) {
     const records: AirtableRecord[] = [];
     let offset: string | undefined;
 
