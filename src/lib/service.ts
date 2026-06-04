@@ -296,7 +296,9 @@ export async function syncAirtableStatusChange(input: {
   const oldStatus = input.oldStatus
     ? coerceStatus(input.oldStatus)
     : previous?.status;
-  const shouldNotify = Boolean(oldStatus && oldStatus !== newStatus);
+  const shouldNotify = oldStatus
+    ? oldStatus !== newStatus
+    : Boolean(input.newStatus);
   const auditHistory = [
     ...(previous?.auditHistory ?? latest.auditHistory),
     ...(shouldNotify
@@ -320,11 +322,12 @@ export async function syncAirtableStatusChange(input: {
 
   await upsertLocalRequest(updated);
 
-  if (shouldNotify && oldStatus) {
+  if (shouldNotify) {
+    const oldStatusLabel = oldStatus ?? "Unknown";
     await runNotification(warnings, () =>
       notifyStatusChange({
         request: updated,
-        oldStatus,
+        oldStatus: oldStatusLabel,
         newStatus,
         changedBy,
         changedBySlackId: changedBySlackId || undefined,

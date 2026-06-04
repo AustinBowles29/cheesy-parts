@@ -163,7 +163,7 @@ export async function notifyNewSubmission(request: ManufacturingRequest) {
 
 export async function notifyStatusChange(input: {
   request: ManufacturingRequest;
-  oldStatus: ManufacturingStatus;
+  oldStatus: ManufacturingStatus | "Unknown";
   newStatus: ManufacturingStatus;
   changedBy: string;
   changedBySlackId?: string;
