@@ -38,6 +38,11 @@ Recommended extension action URL:
 https://cheesy-parts.vercel.app/onshape?documentId={$documentId}&workspaceOrVersion={$workspaceOrVersion}&workspaceOrVersionId={$workspaceOrVersionId}&elementId={$elementId}&partId={$partId}&partNumber={$partNumber}
 ```
 
+If Onshape leaves an unsupported replacement token such as `{$partNumber}` in
+the URL, the panel ignores it and leaves that field editable. The embedded
+right-panel context does not currently provide part names directly; full part
+name/material/BOM auto-fill requires Onshape OAuth plus API metadata lookup.
+
 Onshape App Store applications should use OAuth2 for user-authorized API access.
 For internal team use, the panel can be embedded directly and fed metadata from
 Onshape context or a lightweight browser extension until OAuth is wired in.

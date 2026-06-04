@@ -13,7 +13,17 @@ export const metadata: Metadata = {
 };
 
 function firstParam(value: string | string[] | undefined) {
-  return Array.isArray(value) ? value[0] : value;
+  const rawValue = Array.isArray(value) ? value[0] : value;
+  if (!rawValue) {
+    return undefined;
+  }
+
+  const trimmed = rawValue.trim();
+  if (/^\{\$[^}]+\}$/.test(trimmed)) {
+    return undefined;
+  }
+
+  return trimmed;
 }
 
 function buildOnshapeUrl(
