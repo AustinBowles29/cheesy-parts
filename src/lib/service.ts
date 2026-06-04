@@ -72,7 +72,6 @@ export function buildManufacturingRequest(
       thickness: input.thickness,
       partName,
       hasDrawing: input.attachments?.some((attachment) => attachment.kind === "drawing"),
-      hasDxf: input.attachments?.some((attachment) => attachment.kind === "dxf"),
     });
   const submitter = normalizeString(input.submitter);
 

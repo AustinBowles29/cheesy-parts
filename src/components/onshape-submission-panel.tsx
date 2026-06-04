@@ -118,7 +118,6 @@ export function OnshapeSubmissionPanel({
     dropdownInitialValue(defaults.vendorName, fieldOptions.vendors),
   );
   const [hasDrawing, setHasDrawing] = useState(false);
-  const [hasDxf, setHasDxf] = useState(false);
   const [machineOverride, setMachineOverride] = useState(defaults.machineType ?? "");
   const [submitState, setSubmitState] = useState<SubmitState>({
     status: "idle",
@@ -135,8 +134,8 @@ export function OnshapeSubmissionPanel({
   const selectedSubmitter =
     users.find((user) => user.slackUserId === selectedSubmitterId) ?? users[0];
   const inferredMachineType = useMemo(
-    () => deriveMachineType({ material, thickness, partName, hasDrawing, hasDxf }),
-    [material, thickness, partName, hasDrawing, hasDxf],
+    () => deriveMachineType({ material, thickness, partName, hasDrawing }),
+    [material, thickness, partName, hasDrawing],
   );
   const machineType = (machineOverride || inferredMachineType) as MachineType;
   const is3DP = machineType === "3DP";
@@ -665,7 +664,7 @@ export function OnshapeSubmissionPanel({
           <div className="rounded-lg border border-[#d8e2f0] bg-white p-4">
             <div className="mb-4 flex items-center gap-2 text-sm font-semibold text-[#0b3d91]">
               <FileUp size={17} aria-hidden="true" />
-              Files and notes
+              Drawing PDF
             </div>
             <div className="grid gap-3">
               <label className="field">
@@ -677,29 +676,6 @@ export function OnshapeSubmissionPanel({
                   onChange={(event) =>
                     setHasDrawing((event.currentTarget.files?.length ?? 0) > 0)
                   }
-                />
-              </label>
-              <label className="field">
-                <span>DXF</span>
-                <input
-                  name="dxf"
-                  type="file"
-                  accept=".dxf"
-                  onChange={(event) =>
-                    setHasDxf((event.currentTarget.files?.length ?? 0) > 0)
-                  }
-                />
-              </label>
-              <label className="field">
-                <span>Additional files</span>
-                <input name="otherFiles" type="file" multiple />
-              </label>
-              <label className="field">
-                <span>Manufacturing notes</span>
-                <textarea
-                  name="manufacturingNotes"
-                  defaultValue={defaults.manufacturingNotes}
-                  rows={4}
                 />
               </label>
             </div>

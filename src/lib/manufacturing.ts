@@ -82,7 +82,6 @@ export function deriveMachineType(input: {
   thickness?: string;
   partName?: string;
   hasDrawing?: boolean;
-  hasDxf?: boolean;
 }): MachineType {
   const material = normalizeString(input.material).toLowerCase();
   const partName = normalizeString(input.partName).toLowerCase();
@@ -90,7 +89,6 @@ export function deriveMachineType(input: {
     normalizeString(input.thickness).replace(/[^\d.]/g, ""),
   );
   const sheetLike =
-    input.hasDxf ||
     /(sheet|plate|panel|gusset|flat|bellypan|bracket|side rail|rail plate)/.test(
       partName,
     );
@@ -121,7 +119,7 @@ export function deriveMachineType(input: {
   }
 
   if (sheetLike && /(aluminum|6061|7075|5052)/.test(material)) {
-    return input.hasDxf ? "Waterjet" : "CNC Router";
+    return "CNC Router";
   }
 
   if (sheetLike) {
@@ -158,13 +156,8 @@ export function inferInitialStatus(input: {
 
   const attachments = input.attachments ?? [];
   const hasDrawing = attachments.some((attachment) => attachment.kind === "drawing");
-  const hasDxf = attachments.some((attachment) => attachment.kind === "dxf");
-  const needsFlatPattern =
-    input.machineType === "CNC Router" ||
-    input.machineType === "Laser" ||
-    input.machineType === "Waterjet";
 
-  if (!hasDrawing || (needsFlatPattern && !hasDxf)) {
+  if (!hasDrawing) {
     return "Needs Drawing";
   }
 
