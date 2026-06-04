@@ -177,6 +177,49 @@ function configuredTableTargets() {
   return targets;
 }
 
+async function configuredCanonicalTableTargets() {
+  const targets = configuredTableTargets();
+  const needsSchema = targets.some((target) => target.airtableTableName);
+
+  if (!needsSchema) {
+    return targets;
+  }
+
+  const base = baseId();
+  if (!base) {
+    return targets;
+  }
+
+  const schema = await airtableFetch<AirtableBaseSchemaResponse>(
+    `${apiBase}/meta/bases/${base}/tables`,
+  );
+  const seen = new Set<string>();
+  const canonicalTargets: AirtableTableTarget[] = [];
+
+  for (const target of targets) {
+    const table = schema.tables.find(
+      (item) => item.id === target.value || item.name === target.value,
+    );
+    const canonical = table
+      ? {
+          value: table.id,
+          airtableTableId: table.id,
+          airtableTableName: table.name,
+        }
+      : target;
+
+    const key = canonical.airtableTableId ?? canonical.value;
+    if (seen.has(key)) {
+      continue;
+    }
+
+    seen.add(key);
+    canonicalTargets.push(canonical);
+  }
+
+  return canonicalTargets;
+}
+
 function queueViewForTarget(target: AirtableTableTarget) {
   return (
     normalizeString(process.env[`AIRTABLE_QUEUE_VIEW_${envKeySuffix(target.value)}`]) ||
@@ -252,14 +295,10 @@ function uniqueSorted(values: string[]) {
 }
 
 function configuredTables(schema: AirtableBaseSchemaResponse) {
-  const targets = configuredTableTargets();
-  return targets
-    .map((target) =>
-      schema.tables.find(
-        (item) => item.id === target.value || item.name === target.value,
-      ),
-    )
-    .filter((table): table is AirtableTableSchema => Boolean(table));
+  const values = new Set(configuredTableTargets().map((target) => target.value));
+  return schema.tables.filter(
+    (table) => values.has(table.id) || values.has(table.name),
+  );
 }
 
 function fieldByName(
@@ -587,7 +626,7 @@ export async function createAirtableRecord(request: ManufacturingRequest) {
 export async function listAirtableRequests() {
   const requests: ManufacturingRequest[] = [];
 
-  for (const target of configuredTableTargets()) {
+  for (const target of await configuredCanonicalTableTargets()) {
     const records: AirtableRecord[] = [];
     let offset: string | undefined;
 
