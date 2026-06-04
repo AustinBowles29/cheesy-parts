@@ -168,17 +168,31 @@ export async function notifyStatusChange(input: {
   changedBy: string;
   changedBySlackId?: string;
 }) {
+  const partLabel =
+    input.request.partName ||
+    input.request.partNumber ||
+    input.request.airtableId ||
+    "Part";
+  const statusText =
+    input.oldStatus === "Unknown"
+      ? `*${partLabel}* changed status to *${input.newStatus}*.`
+      : `*${partLabel}* changed status from *${input.oldStatus}* to *${input.newStatus}*.`;
+  const plainStatusText =
+    input.oldStatus === "Unknown"
+      ? `${partLabel}: ${input.newStatus}`
+      : `${partLabel}: ${input.oldStatus} -> ${input.newStatus}`;
+
   return postSlack({
     webhookUrl: statusWebhookUrl(),
     channelId: statusChannelId(),
     payload: {
-      text: `${input.request.partName}: ${input.oldStatus} -> ${input.newStatus}`,
+      text: plainStatusText,
       blocks: [
         {
           type: "section",
           text: {
             type: "mrkdwn",
-            text: `*${input.request.partName}* changed status from *${input.oldStatus}* to *${input.newStatus}*.\nChanged by: ${input.changedBySlackId ? `<@${input.changedBySlackId}>` : input.changedBy}`,
+            text: `${statusText}\nChanged by: ${input.changedBySlackId ? `<@${input.changedBySlackId}>` : input.changedBy}`,
           },
         },
       ],

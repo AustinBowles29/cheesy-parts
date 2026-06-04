@@ -406,8 +406,53 @@ function fieldString(fields: Record<string, unknown>, name: string) {
   return normalizeString(value);
 }
 
-function fieldNumber(fields: Record<string, unknown>, name: string) {
-  return normalizeQuantity(fields[name]);
+function fieldStringFrom(fields: Record<string, unknown>, names: string[]) {
+  for (const name of names) {
+    const value = fieldString(fields, name);
+    if (value) {
+      return value;
+    }
+  }
+
+  return "";
+}
+
+function firstTextField(
+  fields: Record<string, unknown>,
+  excludedNames: string[],
+) {
+  const excluded = new Set(excludedNames.map((name) => name.toLowerCase()));
+  for (const [name, value] of Object.entries(fields)) {
+    if (excluded.has(name.toLowerCase())) {
+      continue;
+    }
+
+    const text = fieldString({ [name]: value }, name);
+    if (text) {
+      return text;
+    }
+  }
+
+  return "";
+}
+
+function fieldNumberFrom(fields: Record<string, unknown>, names: string[]) {
+  for (const name of names) {
+    const value = normalizeString(fields[name]);
+    if (value) {
+      return normalizeQuantity(value);
+    }
+
+    if (typeof fields[name] === "number") {
+      return normalizeQuantity(fields[name]);
+    }
+  }
+
+  return 1;
+}
+
+function partNumberFromTitle(title: string) {
+  return title.match(/\b\d{2}-[A-Z]-\d{3,5}\b/i)?.[0] ?? "";
 }
 
 export function mapAirtableRecord(
@@ -415,9 +460,32 @@ export function mapAirtableRecord(
   target = resolveAirtableTableTarget(),
 ): ManufacturingRequest {
   const fields = record.fields;
+  const partTitle =
+    fieldStringFrom(fields, [
+      "Part Name",
+      "Description",
+      "Pivot Spacer Standof",
+      "Name",
+    ]) ||
+    firstTextField(fields, [
+      "Status",
+      "Subsystem",
+      "Machine",
+      "Raw material",
+      "Material",
+      "Owner",
+      "Notes",
+      "Post-process",
+    ]) ||
+    record.id;
+  const partNumber =
+    fieldStringFrom(fields, ["Part Number", "Part number", "Part No", "Part #"]) ||
+    partNumberFromTitle(partTitle);
   const machineType =
     coerceMachineType(fields["Machine Type"]) ??
     coerceMachineType(fieldString(fields, "Machine Type")) ??
+    coerceMachineType(fields.Machine) ??
+    coerceMachineType(fieldString(fields, "Machine")) ??
     "Other";
 
   return {
@@ -426,21 +494,27 @@ export function mapAirtableRecord(
     airtableUrl: airtableRecordUrl(record.id, target),
     airtableTableId: target?.airtableTableId,
     airtableTableName: target?.airtableTableName,
-    partName: fieldString(fields, "Part Name"),
-    partNumber: fieldString(fields, "Part Number"),
+    partName: partTitle,
+    partNumber,
     notes: fieldString(fields, "Notes") || fieldString(fields, "Description"),
-    quantity: fieldNumber(fields, "Quantity"),
+    quantity: fieldNumberFrom(fields, [
+      "Quantity",
+      "Mfg. / Order Qty",
+      "Mfg./Order Qty",
+      "Mfg. / Order",
+      "Quantity per robot",
+    ]),
     subsystem: fieldString(fields, "Subsystem"),
     category: coerceCategory(fields.Category),
-    material: fieldString(fields, "Material"),
+    material: fieldStringFrom(fields, ["Material", "Raw material"]),
     thickness: fieldString(fields, "Thickness"),
-    finish: coerceFinish(fields.Finish),
+    finish: coerceFinish(fieldStringFrom(fields, ["Finish", "Post-process"])),
     machineType,
     onshapePartUrl: fieldString(fields, "Onshape Part URL"),
     onshapeDrawingUrl: fieldString(fields, "Onshape Drawing URL"),
     assemblyUrl: fieldString(fields, "Assembly URL"),
     branchVersionReference: fieldString(fields, "Branch/Version Reference"),
-    submitter: fieldString(fields, "Submitter"),
+    submitter: fieldStringFrom(fields, ["Submitter", "Owner"]),
     submitterSlackId: fieldString(fields, "Submitter Slack ID") || undefined,
     submittedAt:
       fieldString(fields, "Time Created") ||
@@ -450,7 +524,10 @@ export function mapAirtableRecord(
     status: coerceStatus(fields.Status),
     attachments: [],
     manufacturingNotes: fieldString(fields, "Manufacturing Notes"),
-    priority: fieldString(fields, "Priority") as ManufacturingRequest["priority"],
+    priority: fieldStringFrom(fields, [
+      "Priority",
+      "Mfg. priority",
+    ]) as ManufacturingRequest["priority"],
     printMaterial: fieldString(fields, "Print Material") || undefined,
     printColor: fieldString(fields, "Print Color") || undefined,
     infill: fieldString(fields, "Infill") || undefined,
