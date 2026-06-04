@@ -99,8 +99,9 @@ default fallback table. Route submissions by category with
 `AIRTABLE_TABLE_OFFSEASON`, and `AIRTABLE_TABLE_OTHER`, or use
 `AIRTABLE_CATEGORY_TABLE_MAP` with JSON values. When multiple tables are
 configured, the submit panel also shows a `Tracking table` selector for explicit
-manual routing. Set `AIRTABLE_QUEUE_VIEW=To manufacture` to load only records
-visible in that Airtable view instead of every record in each table.
+manual routing. Queue reads default to the `To manufacture` view so the app
+does not load every historical record in each table. Set `AIRTABLE_QUEUE_VIEW`
+to override that default with another view name or ID.
 
 Slack notifications use incoming webhook URLs when configured. If webhook URLs
 are not configured, the app uses Slack `chat.postMessage` with

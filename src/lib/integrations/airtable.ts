@@ -69,6 +69,7 @@ interface AirtableTableHint {
 }
 
 const apiBase = "https://api.airtable.com/v0";
+const defaultQueueView = "To manufacture";
 
 function token() {
   return (
@@ -181,7 +182,7 @@ function queueViewForTarget(target: AirtableTableTarget) {
     normalizeString(process.env[`AIRTABLE_QUEUE_VIEW_${envKeySuffix(target.value)}`]) ||
     normalizeString(process.env.AIRTABLE_QUEUE_VIEW) ||
     normalizeString(process.env.AIRTABLE_VIEW) ||
-    ""
+    defaultQueueView
   );
 }
 
