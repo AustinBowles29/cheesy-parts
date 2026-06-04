@@ -57,6 +57,7 @@ AIRTABLE_PERSONAL_ACCESS_TOKEN=
 AIRTABLE_BASE_ID=
 AIRTABLE_TABLE_ID=
 AIRTABLE_TABLES=
+AIRTABLE_QUEUE_VIEW=To manufacture
 AIRTABLE_TABLE_ROBOT=
 AIRTABLE_TABLE_SPARES=
 AIRTABLE_TABLE_LAB_GENERAL=
@@ -98,7 +99,8 @@ default fallback table. Route submissions by category with
 `AIRTABLE_TABLE_OFFSEASON`, and `AIRTABLE_TABLE_OTHER`, or use
 `AIRTABLE_CATEGORY_TABLE_MAP` with JSON values. When multiple tables are
 configured, the submit panel also shows a `Tracking table` selector for explicit
-manual routing.
+manual routing. Set `AIRTABLE_QUEUE_VIEW=To manufacture` to load only records
+visible in that Airtable view instead of every record in each table.
 
 Slack notifications use incoming webhook URLs when configured. If webhook URLs
 are not configured, the app uses Slack `chat.postMessage` with

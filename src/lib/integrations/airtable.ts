@@ -95,6 +95,10 @@ function categoryEnvKey(category: string) {
   return `AIRTABLE_TABLE_${category.replace(/[^A-Za-z0-9]+/g, "_").toUpperCase()}`;
 }
 
+function envKeySuffix(value: string) {
+  return value.replace(/[^A-Za-z0-9]+/g, "_").toUpperCase();
+}
+
 function categoryTableMap() {
   const map = new Map<string, string>();
   const rawJson = process.env.AIRTABLE_CATEGORY_TABLE_MAP;
@@ -170,6 +174,15 @@ function configuredTableTargets() {
   }
 
   return targets;
+}
+
+function queueViewForTarget(target: AirtableTableTarget) {
+  return (
+    normalizeString(process.env[`AIRTABLE_QUEUE_VIEW_${envKeySuffix(target.value)}`]) ||
+    normalizeString(process.env.AIRTABLE_QUEUE_VIEW) ||
+    normalizeString(process.env.AIRTABLE_VIEW) ||
+    ""
+  );
 }
 
 export function isAirtableConfigured() {
@@ -580,6 +593,10 @@ export async function listAirtableRequests() {
     do {
       const url = new URL(tableUrl(target));
       url.searchParams.set("pageSize", "100");
+      const view = queueViewForTarget(target);
+      if (view) {
+        url.searchParams.set("view", view);
+      }
       if (offset) {
         url.searchParams.set("offset", offset);
       }
