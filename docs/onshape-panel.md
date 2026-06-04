@@ -56,9 +56,15 @@ Vercel environment variables:
 AIRTABLE_PERSONAL_ACCESS_TOKEN=
 AIRTABLE_BASE_ID=
 AIRTABLE_TABLE_ID=
+AIRTABLE_WEBHOOK_ID=
+AIRTABLE_WEBHOOK_SECRET=
 ONSHAPE_CLIENT_ID=
 ONSHAPE_CLIENT_SECRET=
 ONSHAPE_REDIRECT_URI=https://cheesy-parts.vercel.app/oauthRedirect
+SLACK_BOT_TOKEN=
+SLACK_MANUFACTURING_CHANNEL_ID=
+SLACK_STATUS_CHANNEL_ID=
+SLACK_3DP_CHANNEL_ID=
 ```
 
 After a user connects Onshape, the panel fetches the selected Part Studio parts
@@ -77,6 +83,23 @@ If the Airtable token includes schema read access, the panel reads select-field
 choices from Airtable for `Subsystem` and `Vendor Name`/`Vendor` and uses those
 as dropdown options. Add `Notes` and `Time Created` fields to the manufacturing
 table so those values can be written back to Airtable.
+
+Slack notifications use incoming webhook URLs when configured. If webhook URLs
+are not configured, the app uses Slack `chat.postMessage` with
+`SLACK_BOT_TOKEN` plus channel IDs. The Slack app needs `chat:write`, and the
+bot must be in private channels before it can post there.
+
+Airtable manual status changes can notify the app through:
+
+```text
+https://cheesy-parts.vercel.app/api/airtable/webhook?secret=YOUR_SECRET
+```
+
+Set the same value in `AIRTABLE_WEBHOOK_SECRET`. Airtable Automations can send
+`recordId`, `oldStatus`, `newStatus`, and `changedBy` directly. The official
+Airtable Webhooks API can also be used by setting `AIRTABLE_WEBHOOK_ID`; the
+app drains webhook payloads, fetches changed records, compares cached status,
+and posts Slack notifications for detected status changes.
 
 When no Drawing PDF is manually uploaded, the submission API can attach an
 exported Onshape PDF automatically. It first searches drawing elements in the

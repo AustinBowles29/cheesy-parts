@@ -47,6 +47,12 @@ interface AirtableBaseSchemaResponse {
   tables: AirtableTableSchema[];
 }
 
+interface AirtableWebhookPayloadsResponse {
+  payloads?: unknown[];
+  cursor?: string | number;
+  mightHaveMore?: boolean;
+}
+
 const apiBase = "https://api.airtable.com/v0";
 
 function token() {
@@ -194,6 +200,23 @@ export async function getAirtableSubmissionFieldOptions(): Promise<SubmissionFie
           : "Airtable dropdown options could not be loaded.",
     };
   }
+}
+
+export async function listAirtableWebhookPayloads(
+  webhookId: string,
+  cursor?: string,
+) {
+  const base = baseId();
+  if (!base) {
+    throw new Error("Missing Airtable base ID.");
+  }
+
+  const url = new URL(`${apiBase}/bases/${base}/webhooks/${webhookId}/payloads`);
+  if (cursor) {
+    url.searchParams.set("cursor", cursor);
+  }
+
+  return airtableFetch<AirtableWebhookPayloadsResponse>(url.toString());
 }
 
 function attachmentFields(

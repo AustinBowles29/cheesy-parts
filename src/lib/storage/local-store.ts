@@ -19,6 +19,7 @@ function defaultDataDir() {
 
 const dataDir = defaultDataDir();
 const storePath = path.join(dataDir, "requests.json");
+const airtableWebhookCursorPath = path.join(dataDir, "airtable-webhook-cursors.json");
 
 async function ensureStore() {
   await fs.mkdir(dataDir, { recursive: true });
@@ -76,5 +77,34 @@ export async function findLocalRequest(id: string) {
   return (
     requests.find((request) => request.id === id || request.airtableId === id) ??
     null
+  );
+}
+
+async function readCursorStore(): Promise<Record<string, string>> {
+  await fs.mkdir(dataDir, { recursive: true });
+
+  try {
+    const raw = await fs.readFile(airtableWebhookCursorPath, "utf8");
+    return raw.trim() ? (JSON.parse(raw) as Record<string, string>) : {};
+  } catch {
+    return {};
+  }
+}
+
+export async function readAirtableWebhookCursor(webhookId: string) {
+  const store = await readCursorStore();
+  return store[webhookId];
+}
+
+export async function writeAirtableWebhookCursor(
+  webhookId: string,
+  cursor: string,
+) {
+  const store = await readCursorStore();
+  store[webhookId] = cursor;
+  await fs.writeFile(
+    airtableWebhookCursorPath,
+    JSON.stringify(store, null, 2),
+    "utf8",
   );
 }

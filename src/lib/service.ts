@@ -249,6 +249,63 @@ export async function changeManufacturingStatus(input: {
   return { data: updated, warnings };
 }
 
+export async function syncAirtableStatusChange(input: {
+  recordId: string;
+  oldStatus?: string;
+  newStatus?: string;
+  changedBy?: string;
+  changedBySlackId?: string;
+}): Promise<ServiceResult<ManufacturingRequest> & { notified: boolean }> {
+  const warnings: string[] = [];
+  const previous = await findLocalRequest(input.recordId);
+  const latest = await getAirtableRequest(input.recordId);
+  const changedBy = normalizeString(input.changedBy, "Airtable");
+  const changedBySlackId = normalizeString(input.changedBySlackId);
+  const newStatus = input.newStatus
+    ? coerceStatus(input.newStatus)
+    : latest.status;
+  const oldStatus = input.oldStatus
+    ? coerceStatus(input.oldStatus)
+    : previous?.status;
+  const shouldNotify = Boolean(oldStatus && oldStatus !== newStatus);
+  const auditHistory = [
+    ...(previous?.auditHistory ?? latest.auditHistory),
+    ...(shouldNotify
+      ? [
+          auditEntry({
+            action: "status_changed",
+            actor: changedBy,
+            actorSlackId: changedBySlackId || undefined,
+            fromStatus: oldStatus,
+            toStatus: newStatus,
+            note: "Status changed in Airtable.",
+          }),
+        ]
+      : []),
+  ];
+  const updated: ManufacturingRequest = {
+    ...latest,
+    status: newStatus,
+    auditHistory,
+  };
+
+  await upsertLocalRequest(updated);
+
+  if (shouldNotify && oldStatus) {
+    await runNotification(warnings, () =>
+      notifyStatusChange({
+        request: updated,
+        oldStatus,
+        newStatus,
+        changedBy,
+        changedBySlackId: changedBySlackId || undefined,
+      }),
+    );
+  }
+
+  return { data: updated, warnings, notified: shouldNotify };
+}
+
 export async function createSpareRequest(input: {
   id: string;
   spareQuantity: number | string;
