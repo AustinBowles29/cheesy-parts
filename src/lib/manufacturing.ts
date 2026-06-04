@@ -37,32 +37,32 @@ export function normalizeQuantity(value: unknown) {
   return Math.floor(numberValue);
 }
 
+function matchingChoice<T extends string>(
+  choices: readonly T[],
+  value: unknown,
+): T | undefined {
+  const normalized = normalizeString(value).toLowerCase();
+  return choices.find((choice) => choice.toLowerCase() === normalized);
+}
+
 export function coerceStatus(value: unknown): ManufacturingStatus {
-  return STATUSES.includes(value as ManufacturingStatus)
-    ? (value as ManufacturingStatus)
-    : DEFAULT_STATUS;
+  return matchingChoice(STATUSES, value) ?? DEFAULT_STATUS;
 }
 
 export function coerceCategory(value: unknown): Category {
-  return CATEGORIES.includes(value as Category)
-    ? (value as Category)
-    : DEFAULT_CATEGORY;
+  return matchingChoice(CATEGORIES, value) ?? DEFAULT_CATEGORY;
 }
 
 export function coerceFinish(value: unknown): Finish {
-  return FINISHES.includes(value as Finish) ? (value as Finish) : DEFAULT_FINISH;
+  return matchingChoice(FINISHES, value) ?? DEFAULT_FINISH;
 }
 
 export function coerceMachineType(value: unknown): MachineType | undefined {
-  return MACHINE_TYPES.includes(value as MachineType)
-    ? (value as MachineType)
-    : undefined;
+  return matchingChoice(MACHINE_TYPES, value);
 }
 
 export function coercePriority(value: unknown): Priority {
-  return PRIORITIES.includes(value as Priority)
-    ? (value as Priority)
-    : DEFAULT_PRIORITY;
+  return matchingChoice(PRIORITIES, value) ?? DEFAULT_PRIORITY;
 }
 
 export function normalizeBoolean(value: unknown) {
@@ -149,7 +149,7 @@ export function inferInitialStatus(input: {
   attachments?: { kind: string }[];
   explicitStatus?: string;
 }) {
-  const explicit = STATUSES.find((status) => status === input.explicitStatus);
+  const explicit = matchingChoice(STATUSES, input.explicitStatus);
   if (explicit) {
     return explicit;
   }
