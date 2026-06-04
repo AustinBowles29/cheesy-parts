@@ -8,7 +8,7 @@ Team 254 manufacturing request and tracking MVP.
 - Local `.data/requests.json` fallback for development
 - Slack notifications for new submissions, status changes, and 3DP requests
 - Status tracking, queue filters, attachments, and spare request generation
-- Slack `@manufacturing` user-group dropdowns for submitter and acting user
+- Slack `@design` user-group dropdowns for submitter and acting user
 
 ## Setup
 

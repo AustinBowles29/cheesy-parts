@@ -99,7 +99,7 @@ async function resolveManufacturingUsergroupId() {
   }
 
   const handle = (
-    process.env.SLACK_MANUFACTURING_USERGROUP_HANDLE ?? "manufacturing"
+    process.env.SLACK_MANUFACTURING_USERGROUP_HANDLE ?? "design"
   ).replace(/^@/, "");
   const response = await slackFetch<SlackUsergroupListResponse>("usergroups.list");
   const usergroup = response.usergroups?.find(
