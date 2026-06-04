@@ -13,6 +13,8 @@ export async function PATCH(
       status?: string;
       changedBy?: string;
       changedBySlackId?: string;
+      airtableTableId?: string;
+      airtableTableName?: string;
     };
 
     const result = await changeManufacturingStatus({
@@ -20,6 +22,8 @@ export async function PATCH(
       status: coerceStatus(body.status),
       changedBy: body.changedBy,
       changedBySlackId: body.changedBySlackId,
+      airtableTableId: body.airtableTableId,
+      airtableTableName: body.airtableTableName,
     });
 
     return Response.json(result);

@@ -49,6 +49,8 @@ export interface ManufacturingRequest {
   id: string;
   airtableId?: string;
   airtableUrl?: string;
+  airtableTableId?: string;
+  airtableTableName?: string;
   partName: string;
   partNumber: string;
   notes: string;
@@ -84,6 +86,8 @@ export interface ManufacturingRequest {
 }
 
 export interface SubmissionInput {
+  airtableTableId?: string;
+  airtableTableName?: string;
   partName?: string;
   partNumber?: string;
   notes?: string;
@@ -125,6 +129,10 @@ export interface SubmissionInput {
 export interface SubmissionFieldOptions {
   subsystems: string[];
   vendors: string[];
+  airtableTables?: Array<{
+    id: string;
+    name: string;
+  }>;
   warning?: string;
 }
 

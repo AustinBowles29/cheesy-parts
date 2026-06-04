@@ -3,6 +3,7 @@ import {
   getAirtableRequest,
   isAirtableConfigured,
   listAirtableRequests,
+  resolveAirtableTableTarget,
   updateAirtableStatus,
 } from "./integrations/airtable";
 import {
@@ -74,9 +75,16 @@ export function buildManufacturingRequest(
       hasDrawing: input.attachments?.some((attachment) => attachment.kind === "drawing"),
     });
   const submitter = normalizeString(input.submitter);
+  const airtableTarget = resolveAirtableTableTarget(input);
 
   const request: ManufacturingRequest = {
     id: `mfg_${crypto.randomUUID()}`,
+    airtableTableId:
+      normalizeString(input.airtableTableId) ||
+      airtableTarget?.airtableTableId,
+    airtableTableName:
+      normalizeString(input.airtableTableName) ||
+      airtableTarget?.airtableTableName,
     partName,
     partNumber: normalizeString(input.partNumber),
     notes: normalizeString(input.notes) || normalizeString(input.description),
@@ -148,12 +156,23 @@ export async function listManufacturingRequests() {
   return readLocalRequests();
 }
 
-export async function findManufacturingRequest(id: string) {
-  if (isAirtableConfigured()) {
-    return getAirtableRequest(id);
+export async function findManufacturingRequest(
+  id: string,
+  tableHint: {
+    airtableTableId?: string;
+    airtableTableName?: string;
+  } = {},
+) {
+  const local = await findLocalRequest(id);
+  if (local) {
+    return local;
   }
 
-  return findLocalRequest(id);
+  if (isAirtableConfigured()) {
+    return getAirtableRequest(id, tableHint);
+  }
+
+  return null;
 }
 
 export async function createManufacturingRequest(
@@ -188,9 +207,11 @@ export async function changeManufacturingStatus(input: {
   status: ManufacturingStatus;
   changedBy?: string;
   changedBySlackId?: string;
+  airtableTableId?: string;
+  airtableTableName?: string;
 }): Promise<ServiceResult<ManufacturingRequest>> {
   const warnings: string[] = [];
-  const existing = await findManufacturingRequest(input.id);
+  const existing = await findManufacturingRequest(input.id, input);
 
   if (!existing) {
     throw new ValidationError("Manufacturing request not found.");
@@ -226,6 +247,11 @@ export async function changeManufacturingStatus(input: {
         changedAt: updated.auditHistory.at(-1)?.timestamp ?? new Date().toISOString(),
         auditHistory: updated.auditHistory,
       },
+      {
+        airtableTableId: existing.airtableTableId ?? input.airtableTableId,
+        airtableTableName: existing.airtableTableName ?? input.airtableTableName,
+        category: existing.category,
+      },
     );
     updated = {
       ...updated,
@@ -254,10 +280,14 @@ export async function syncAirtableStatusChange(input: {
   newStatus?: string;
   changedBy?: string;
   changedBySlackId?: string;
+  airtableTableId?: string;
+  airtableTableName?: string;
+  tableId?: string;
+  tableName?: string;
 }): Promise<ServiceResult<ManufacturingRequest> & { notified: boolean }> {
   const warnings: string[] = [];
   const previous = await findLocalRequest(input.recordId);
-  const latest = await getAirtableRequest(input.recordId);
+  const latest = await getAirtableRequest(input.recordId, input);
   const changedBy = normalizeString(input.changedBy, "Airtable");
   const changedBySlackId = normalizeString(input.changedBySlackId);
   const newStatus = input.newStatus
@@ -310,8 +340,10 @@ export async function createSpareRequest(input: {
   spareQuantity: number | string;
   submitter?: string;
   submitterSlackId?: string;
+  airtableTableId?: string;
+  airtableTableName?: string;
 }): Promise<ServiceResult<ManufacturingRequest>> {
-  const source = await findManufacturingRequest(input.id);
+  const source = await findManufacturingRequest(input.id, input);
   if (!source) {
     throw new ValidationError("Source manufacturing request not found.");
   }

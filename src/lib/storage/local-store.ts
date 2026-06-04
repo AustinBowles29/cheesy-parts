@@ -59,7 +59,16 @@ export async function upsertLocalRequest(request: ManufacturingRequest) {
   const index = requests.findIndex(
     (item) =>
       item.id === request.id ||
-      Boolean(request.airtableId && item.airtableId === request.airtableId),
+      Boolean(
+        request.airtableId &&
+          item.airtableId === request.airtableId &&
+          (!request.airtableTableId ||
+            !item.airtableTableId ||
+            request.airtableTableId === item.airtableTableId) &&
+          (!request.airtableTableName ||
+            !item.airtableTableName ||
+            request.airtableTableName === item.airtableTableName),
+      ),
   );
 
   if (index >= 0) {

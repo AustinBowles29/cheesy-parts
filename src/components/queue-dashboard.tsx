@@ -128,6 +128,8 @@ export function QueueDashboard({
         request.subsystem,
         request.material,
         request.machineType,
+        request.airtableTableName,
+        request.airtableTableId,
       ]
         .join(" ")
         .toLowerCase();
@@ -207,6 +209,8 @@ export function QueueDashboard({
         status,
         changedBy: actingUser.displayName,
         changedBySlackId: actingUser.slackUserId,
+        airtableTableId: previousRequest?.airtableTableId,
+        airtableTableName: previousRequest?.airtableTableName,
       }),
     });
     const body = await response.json();
@@ -248,6 +252,8 @@ export function QueueDashboard({
           spareQuantity,
           submitter: actingUser.displayName,
           submitterSlackId: actingUser.slackUserId,
+          airtableTableId: request.airtableTableId,
+          airtableTableName: request.airtableTableName,
         }),
       },
     );
@@ -497,6 +503,11 @@ export function QueueDashboard({
                       <span className="rounded-full bg-[#e7edf5] px-2 py-1 text-xs font-semibold text-[#254668]">
                         {request.category}
                       </span>
+                      {(request.airtableTableName || request.airtableTableId) && (
+                        <div className="mt-2 max-w-36 text-xs text-[#5c6f8a]">
+                          {request.airtableTableName ?? request.airtableTableId}
+                        </div>
+                      )}
                     </td>
                     <td className="px-3 py-3">
                       <div className="flex items-center gap-2">

@@ -6,6 +6,7 @@ import {
   normalizeQuantity,
   normalizeString,
 } from "../manufacturing";
+import { CATEGORIES } from "../constants";
 import type {
   AttachmentRef,
   AuditEntry,
@@ -53,6 +54,20 @@ interface AirtableWebhookPayloadsResponse {
   mightHaveMore?: boolean;
 }
 
+interface AirtableTableTarget {
+  value: string;
+  airtableTableId?: string;
+  airtableTableName?: string;
+}
+
+interface AirtableTableHint {
+  airtableTableId?: string;
+  airtableTableName?: string;
+  tableId?: string;
+  tableName?: string;
+  category?: unknown;
+}
+
 const apiBase = "https://api.airtable.com/v0";
 
 function token() {
@@ -69,17 +84,105 @@ function tableIdOrName() {
   return process.env.AIRTABLE_TABLE_ID ?? process.env.AIRTABLE_TABLE_NAME;
 }
 
+function splitEnvList(value?: string) {
+  return (value ?? "")
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function categoryEnvKey(category: string) {
+  return `AIRTABLE_TABLE_${category.replace(/[^A-Za-z0-9]+/g, "_").toUpperCase()}`;
+}
+
+function categoryTableMap() {
+  const map = new Map<string, string>();
+  const rawJson = process.env.AIRTABLE_CATEGORY_TABLE_MAP;
+
+  if (rawJson) {
+    try {
+      const parsed = JSON.parse(rawJson) as Record<string, unknown>;
+      for (const [category, table] of Object.entries(parsed)) {
+        const tableValue = normalizeString(table);
+        if (tableValue) {
+          map.set(category, tableValue);
+        }
+      }
+    } catch {
+      // Invalid JSON should not block the default table fallback.
+    }
+  }
+
+  for (const category of CATEGORIES) {
+    const table = normalizeString(process.env[categoryEnvKey(category)]);
+    if (table) {
+      map.set(category, table);
+    }
+  }
+
+  return map;
+}
+
+function tableTargetFromValue(value?: string): AirtableTableTarget | undefined {
+  const normalized = normalizeString(value);
+  if (!normalized) {
+    return undefined;
+  }
+
+  if (/^tbl[A-Za-z0-9]+$/.test(normalized)) {
+    return { value: normalized, airtableTableId: normalized };
+  }
+
+  return { value: normalized, airtableTableName: normalized };
+}
+
+export function resolveAirtableTableTarget(
+  hint: AirtableTableHint = {},
+): AirtableTableTarget | undefined {
+  return (
+    tableTargetFromValue(hint.airtableTableId ?? hint.tableId) ??
+    tableTargetFromValue(hint.airtableTableName ?? hint.tableName) ??
+    tableTargetFromValue(
+      hint.category ? categoryTableMap().get(coerceCategory(hint.category)) : "",
+    ) ??
+    tableTargetFromValue(tableIdOrName())
+  );
+}
+
+function configuredTableTargets() {
+  const values = [
+    tableIdOrName(),
+    ...splitEnvList(process.env.AIRTABLE_TABLES),
+    ...splitEnvList(process.env.AIRTABLE_TABLE_NAMES),
+    ...Array.from(categoryTableMap().values()),
+  ];
+  const seen = new Set<string>();
+  const targets: AirtableTableTarget[] = [];
+
+  for (const value of values) {
+    const target = tableTargetFromValue(value);
+    if (!target || seen.has(target.value)) {
+      continue;
+    }
+
+    seen.add(target.value);
+    targets.push(target);
+  }
+
+  return targets;
+}
+
 export function isAirtableConfigured() {
-  return Boolean(token() && baseId() && tableIdOrName());
+  return Boolean(token() && baseId() && configuredTableTargets().length > 0);
 }
 
 function isAirtableSchemaConfigured() {
-  return Boolean(token() && baseId() && tableIdOrName());
+  return Boolean(token() && baseId() && configuredTableTargets().length > 0);
 }
 
-function tableUrl() {
+function tableUrl(target = resolveAirtableTableTarget()) {
   const base = baseId();
-  const table = tableIdOrName();
+  const table = target?.value;
 
   if (!base || !table) {
     throw new Error("Airtable is not configured.");
@@ -88,16 +191,17 @@ function tableUrl() {
   return `${apiBase}/${base}/${encodeURIComponent(table)}`;
 }
 
-function airtableRecordUrl(recordId: string) {
+function airtableRecordUrl(recordId: string, target?: AirtableTableTarget) {
   const explicitBaseUrl = process.env.AIRTABLE_BASE_URL;
-  if (explicitBaseUrl) {
+  const defaultTarget = resolveAirtableTableTarget();
+  if (explicitBaseUrl && (!target || target.value === defaultTarget?.value)) {
     return `${explicitBaseUrl.replace(/\/$/, "")}/${recordId}`;
   }
 
   const base = baseId();
-  const table = tableIdOrName();
+  const table = target?.value ?? defaultTarget?.value;
   if (base && table) {
-    return `https://airtable.com/${base}/${table}/${recordId}`;
+    return `https://airtable.com/${base}/${encodeURIComponent(table)}/${recordId}`;
   }
 
   return "";
@@ -133,11 +237,15 @@ function uniqueSorted(values: string[]) {
   );
 }
 
-function configuredTable(
-  schema: AirtableBaseSchemaResponse,
-): AirtableTableSchema | undefined {
-  const table = tableIdOrName();
-  return schema.tables.find((item) => item.id === table || item.name === table);
+function configuredTables(schema: AirtableBaseSchemaResponse) {
+  const targets = configuredTableTargets();
+  return targets
+    .map((target) =>
+      schema.tables.find(
+        (item) => item.id === target.value || item.name === target.value,
+      ),
+    )
+    .filter((table): table is AirtableTableSchema => Boolean(table));
 }
 
 function fieldByName(
@@ -166,7 +274,7 @@ function fieldChoices(field: AirtableFieldSchema | undefined) {
 
 export async function getAirtableSubmissionFieldOptions(): Promise<SubmissionFieldOptions> {
   if (!isAirtableSchemaConfigured()) {
-    return { subsystems: [], vendors: [] };
+    return { subsystems: [], vendors: [], airtableTables: [] };
   }
 
   try {
@@ -174,26 +282,40 @@ export async function getAirtableSubmissionFieldOptions(): Promise<SubmissionFie
     const schema = await airtableFetch<AirtableBaseSchemaResponse>(
       `${apiBase}/meta/bases/${base}/tables`,
     );
-    const table = configuredTable(schema);
+    const tables = configuredTables(schema);
 
-    if (!table) {
+    if (tables.length === 0) {
       return {
         subsystems: [],
         vendors: [],
-        warning: "Airtable table was not found, so dropdown options were not loaded.",
+        airtableTables: [],
+        warning: "Airtable tables were not found, so dropdown options were not loaded.",
       };
     }
 
     return {
-      subsystems: fieldChoices(fieldByName(table, ["Subsystem", "Subsystems"])),
-      vendors: fieldChoices(
-        fieldByName(table, ["Vendor Name", "Vendor", "COTS Vendor"]),
+      subsystems: uniqueSorted(
+        tables.flatMap((table) =>
+          fieldChoices(fieldByName(table, ["Subsystem", "Subsystems"])),
+        ),
       ),
+      vendors: uniqueSorted(
+        tables.flatMap((table) =>
+          fieldChoices(
+            fieldByName(table, ["Vendor Name", "Vendor", "COTS Vendor"]),
+          ),
+        ),
+      ),
+      airtableTables: tables.map((table) => ({
+        id: table.id,
+        name: table.name,
+      })),
     };
   } catch (error) {
     return {
       subsystems: [],
       vendors: [],
+      airtableTables: [],
       warning:
         error instanceof Error
           ? `Airtable dropdown options could not be loaded: ${error.message}`
@@ -288,7 +410,10 @@ function fieldNumber(fields: Record<string, unknown>, name: string) {
   return normalizeQuantity(fields[name]);
 }
 
-export function mapAirtableRecord(record: AirtableRecord): ManufacturingRequest {
+export function mapAirtableRecord(
+  record: AirtableRecord,
+  target = resolveAirtableTableTarget(),
+): ManufacturingRequest {
   const fields = record.fields;
   const machineType =
     coerceMachineType(fields["Machine Type"]) ??
@@ -298,7 +423,9 @@ export function mapAirtableRecord(record: AirtableRecord): ManufacturingRequest 
   return {
     id: record.id,
     airtableId: record.id,
-    airtableUrl: airtableRecordUrl(record.id),
+    airtableUrl: airtableRecordUrl(record.id, target),
+    airtableTableId: target?.airtableTableId,
+    airtableTableName: target?.airtableTableName,
     partName: fieldString(fields, "Part Name"),
     partNumber: fieldString(fields, "Part Number"),
     notes: fieldString(fields, "Notes") || fieldString(fields, "Description"),
@@ -338,6 +465,7 @@ export function mapAirtableRecord(record: AirtableRecord): ManufacturingRequest 
 }
 
 export async function createAirtableRecord(request: ManufacturingRequest) {
+  const target = resolveAirtableTableTarget(request);
   const payload = {
     records: [
       {
@@ -347,7 +475,7 @@ export async function createAirtableRecord(request: ManufacturingRequest) {
   };
 
   const response = await airtableFetch<{ records: AirtableRecord[] }>(
-    tableUrl(),
+    tableUrl(target),
     {
       method: "POST",
       body: JSON.stringify(payload),
@@ -359,34 +487,51 @@ export async function createAirtableRecord(request: ManufacturingRequest) {
     ...request,
     id: record.id,
     airtableId: record.id,
-    airtableUrl: airtableRecordUrl(record.id),
+    airtableUrl: airtableRecordUrl(record.id, target),
+    airtableTableId: target?.airtableTableId,
+    airtableTableName: target?.airtableTableName,
   };
 }
 
 export async function listAirtableRequests() {
-  const records: AirtableRecord[] = [];
-  let offset: string | undefined;
+  const requests: ManufacturingRequest[] = [];
 
-  do {
-    const url = new URL(tableUrl());
-    url.searchParams.set("pageSize", "100");
-    url.searchParams.set("sort[0][field]", "Time Created");
-    url.searchParams.set("sort[0][direction]", "desc");
-    if (offset) {
-      url.searchParams.set("offset", offset);
-    }
+  for (const target of configuredTableTargets()) {
+    const records: AirtableRecord[] = [];
+    let offset: string | undefined;
 
-    const response = await airtableFetch<AirtableListResponse>(url.toString());
-    records.push(...response.records);
-    offset = response.offset;
-  } while (offset);
+    do {
+      const url = new URL(tableUrl(target));
+      url.searchParams.set("pageSize", "100");
+      url.searchParams.set("sort[0][field]", "Time Created");
+      url.searchParams.set("sort[0][direction]", "desc");
+      if (offset) {
+        url.searchParams.set("offset", offset);
+      }
 
-  return records.map(mapAirtableRecord);
+      const response = await airtableFetch<AirtableListResponse>(url.toString());
+      records.push(...response.records);
+      offset = response.offset;
+    } while (offset);
+
+    requests.push(...records.map((record) => mapAirtableRecord(record, target)));
+  }
+
+  return requests.sort(
+    (a, b) =>
+      new Date(b.submittedAt).getTime() - new Date(a.submittedAt).getTime(),
+  );
 }
 
-export async function getAirtableRequest(recordId: string) {
-  const record = await airtableFetch<AirtableRecord>(`${tableUrl()}/${recordId}`);
-  return mapAirtableRecord(record);
+export async function getAirtableRequest(
+  recordId: string,
+  tableHint: AirtableTableHint = {},
+) {
+  const target = resolveAirtableTableTarget(tableHint);
+  const record = await airtableFetch<AirtableRecord>(
+    `${tableUrl(target)}/${recordId}`,
+  );
+  return mapAirtableRecord(record, target);
 }
 
 export async function updateAirtableStatus(
@@ -398,19 +543,24 @@ export async function updateAirtableStatus(
     changedAt: string;
     auditHistory: AuditEntry[];
   },
+  tableHint: AirtableTableHint = {},
 ) {
-  const record = await airtableFetch<AirtableRecord>(`${tableUrl()}/${recordId}`, {
-    method: "PATCH",
-    body: JSON.stringify({
-      fields: {
-        Status: status,
-        "Last Status Changed By": audit.changedBy,
-        "Last Status Changed By Slack ID": audit.changedBySlackId,
-        "Last Status Change At": audit.changedAt,
-        "Audit History": JSON.stringify(audit.auditHistory),
-      },
-    }),
-  });
+  const target = resolveAirtableTableTarget(tableHint);
+  const record = await airtableFetch<AirtableRecord>(
+    `${tableUrl(target)}/${recordId}`,
+    {
+      method: "PATCH",
+      body: JSON.stringify({
+        fields: {
+          Status: status,
+          "Last Status Changed By": audit.changedBy,
+          "Last Status Changed By Slack ID": audit.changedBySlackId,
+          "Last Status Change At": audit.changedAt,
+          "Audit History": JSON.stringify(audit.auditHistory),
+        },
+      }),
+    },
+  );
 
-  return mapAirtableRecord(record);
+  return mapAirtableRecord(record, target);
 }

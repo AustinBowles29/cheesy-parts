@@ -14,6 +14,8 @@ interface AirtableStatusChange {
   newStatus?: string;
   changedBy?: string;
   changedBySlackId?: string;
+  airtableTableId?: string;
+  airtableTableName?: string;
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -53,30 +55,60 @@ function nestedString(value: unknown, path: string[]): string {
   return normalizeString(current);
 }
 
-function collectRecordIds(value: unknown, recordIds = new Set<string>()) {
+function collectRecordChanges(
+  value: unknown,
+  changes: AirtableStatusChange[] = [],
+  context: Pick<AirtableStatusChange, "airtableTableId" | "airtableTableName"> = {},
+) {
   if (typeof value === "string" && /^rec[A-Za-z0-9]+$/.test(value)) {
-    recordIds.add(value);
-    return recordIds;
+    changes.push({ recordId: value, ...context });
+    return changes;
   }
 
   if (Array.isArray(value)) {
     for (const item of value) {
-      collectRecordIds(item, recordIds);
+      collectRecordChanges(item, changes, context);
     }
 
-    return recordIds;
+    return changes;
   }
 
   const record = asRecord(value);
   if (!record) {
-    return recordIds;
+    return changes;
   }
 
-  for (const item of Object.values(record)) {
-    collectRecordIds(item, recordIds);
+  const nextContext = {
+    airtableTableId:
+      stringField(record, ["airtableTableId", "tableId", "table_id"]) ||
+      nestedString(record, ["table", "id"]) ||
+      context.airtableTableId,
+    airtableTableName:
+      stringField(record, ["airtableTableName", "tableName", "table_name"]) ||
+      nestedString(record, ["table", "name"]) ||
+      context.airtableTableName,
+  };
+  const direct = statusChangeFromRecord(record);
+  if (direct) {
+    changes.push({
+      ...direct,
+      airtableTableId: direct.airtableTableId || nextContext.airtableTableId,
+      airtableTableName:
+        direct.airtableTableName || nextContext.airtableTableName,
+    });
   }
 
-  return recordIds;
+  for (const [key, item] of Object.entries(record)) {
+    const keyedContext = /^tbl[A-Za-z0-9]+$/.test(key)
+      ? { ...nextContext, airtableTableId: key }
+      : nextContext;
+    if (/^rec[A-Za-z0-9]+$/.test(key)) {
+      changes.push({ recordId: key, ...keyedContext });
+    }
+    collectRecordChanges(item, changes, keyedContext);
+  }
+
+  return changes;
 }
 
 function statusChangeFromRecord(value: unknown): AirtableStatusChange | null {
@@ -114,6 +146,12 @@ function statusChangeFromRecord(value: unknown): AirtableStatusChange | null {
       "slackUserId",
       "actorSlackId",
     ]),
+    airtableTableId:
+      stringField(value, ["airtableTableId", "tableId", "table_id"]) ||
+      nestedString(value, ["table", "id"]),
+    airtableTableName:
+      stringField(value, ["airtableTableName", "tableName", "table_name"]) ||
+      nestedString(value, ["table", "name"]),
   };
 }
 
@@ -121,24 +159,42 @@ function directStatusChanges(body: unknown): AirtableStatusChange[] {
   const record = asRecord(body);
   const direct = statusChangeFromRecord(body);
   const changes = direct ? [direct] : [];
+  const tableContext = {
+    airtableTableId:
+      stringField(body, ["airtableTableId", "tableId", "table_id"]) ||
+      nestedString(body, ["table", "id"]),
+    airtableTableName:
+      stringField(body, ["airtableTableName", "tableName", "table_name"]) ||
+      nestedString(body, ["table", "name"]),
+  };
   const records = record?.records;
 
   if (Array.isArray(records)) {
     for (const item of records) {
       const change = statusChangeFromRecord(item);
       if (change) {
-        changes.push(change);
+        changes.push({
+          ...change,
+          airtableTableId: change.airtableTableId || tableContext.airtableTableId,
+          airtableTableName:
+            change.airtableTableName || tableContext.airtableTableName,
+        });
       }
     }
   }
 
   const seen = new Set<string>();
   return changes.filter((change) => {
-    if (seen.has(change.recordId)) {
+    const key = [
+      change.airtableTableId ?? "",
+      change.airtableTableName ?? "",
+      change.recordId,
+    ].join(":");
+    if (seen.has(key)) {
       return false;
     }
 
-    seen.add(change.recordId);
+    seen.add(key);
     return true;
   });
 }
@@ -163,16 +219,16 @@ function cursorFromBody(body: unknown): string {
 async function recordIdsFromAirtableWebhook(body: unknown) {
   const webhookId = webhookIdFromBody(body);
   if (!webhookId) {
-    return new Set<string>();
+    return [];
   }
 
   let cursor = cursorFromBody(body) || (await readAirtableWebhookCursor(webhookId));
-  const recordIds = new Set<string>();
+  const changes: AirtableStatusChange[] = [];
 
   for (let page = 0; page < 5; page += 1) {
     const response = await listAirtableWebhookPayloads(webhookId, cursor);
     for (const payload of response.payloads ?? []) {
-      collectRecordIds(payload, recordIds);
+      collectRecordChanges(payload, changes);
     }
 
     if (response.cursor !== undefined) {
@@ -185,7 +241,20 @@ async function recordIdsFromAirtableWebhook(body: unknown) {
     }
   }
 
-  return recordIds;
+  const seen = new Set<string>();
+  return changes.filter((change) => {
+    const key = [
+      change.airtableTableId ?? "",
+      change.airtableTableName ?? "",
+      change.recordId,
+    ].join(":");
+    if (seen.has(key)) {
+      return false;
+    }
+
+    seen.add(key);
+    return true;
+  });
 }
 
 function webhookSecretMatches(req: Request) {
@@ -224,9 +293,7 @@ export async function POST(req: Request) {
   const changes =
     directChanges.length > 0
       ? directChanges
-      : Array.from(await recordIdsFromAirtableWebhook(body)).map((recordId) => ({
-          recordId,
-        }));
+      : await recordIdsFromAirtableWebhook(body);
   const results = [];
 
   for (const change of changes) {
@@ -234,6 +301,8 @@ export async function POST(req: Request) {
       const result = await syncAirtableStatusChange(change);
       results.push({
         recordId: change.recordId,
+        airtableTableId: change.airtableTableId,
+        airtableTableName: change.airtableTableName,
         status: result.data.status,
         notified: result.notified,
       });

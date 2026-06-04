@@ -103,6 +103,8 @@ export function OnshapeSubmissionPanel({
     manufacturingUsers.length > 0
       ? manufacturingUsers
       : [{ slackUserId: "local-manufacturing", displayName: "Manufacturing" }];
+  const airtableTables = fieldOptions.airtableTables ?? [];
+  const defaultAirtableTableId = defaults.airtableTableId ?? "";
   const [selectedSubmitterId, setSelectedSubmitterId] = useState(
     users[0].slackUserId,
   );
@@ -528,6 +530,43 @@ export function OnshapeSubmissionPanel({
                   ))}
                 </select>
               </label>
+              {airtableTables.length > 1 && (
+                <label className="field">
+                  <span>Tracking table</span>
+                  <select
+                    name="airtableTableId"
+                    defaultValue={defaultAirtableTableId}
+                  >
+                    <option value="">Category default</option>
+                    {airtableTables.map((table) => (
+                      <option key={table.id} value={table.id}>
+                        {table.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
+              {airtableTables.length === 1 && (
+                <input
+                  type="hidden"
+                  name="airtableTableId"
+                  value={airtableTables[0].id}
+                />
+              )}
+              {airtableTables.length === 0 && defaults.airtableTableId && (
+                <input
+                  type="hidden"
+                  name="airtableTableId"
+                  value={defaults.airtableTableId}
+                />
+              )}
+              {airtableTables.length === 0 && defaults.airtableTableName && (
+                <input
+                  type="hidden"
+                  name="airtableTableName"
+                  value={defaults.airtableTableName}
+                />
+              )}
               <label className="field">
                 <span>Finish</span>
                 <select

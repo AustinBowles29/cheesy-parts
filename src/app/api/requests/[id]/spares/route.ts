@@ -12,6 +12,8 @@ export async function POST(
       spareQuantity?: number | string;
       submitter?: string;
       submitterSlackId?: string;
+      airtableTableId?: string;
+      airtableTableName?: string;
     };
 
     const result = await createSpareRequest({
@@ -19,6 +21,8 @@ export async function POST(
       spareQuantity: body.spareQuantity ?? 1,
       submitter: body.submitter,
       submitterSlackId: body.submitterSlackId,
+      airtableTableId: body.airtableTableId,
+      airtableTableName: body.airtableTableName,
     });
 
     return Response.json(result, { status: 201 });

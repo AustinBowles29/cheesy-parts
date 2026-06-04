@@ -56,6 +56,12 @@ Vercel environment variables:
 AIRTABLE_PERSONAL_ACCESS_TOKEN=
 AIRTABLE_BASE_ID=
 AIRTABLE_TABLE_ID=
+AIRTABLE_TABLES=
+AIRTABLE_TABLE_ROBOT=
+AIRTABLE_TABLE_SPARES=
+AIRTABLE_TABLE_LAB_GENERAL=
+AIRTABLE_TABLE_OFFSEASON=
+AIRTABLE_TABLE_OTHER=
 AIRTABLE_WEBHOOK_ID=
 AIRTABLE_WEBHOOK_SECRET=
 ONSHAPE_CLIENT_ID=
@@ -80,9 +86,19 @@ estimate thickness from geometry because many submitted parts are not flat plate
 parts.
 
 If the Airtable token includes schema read access, the panel reads select-field
-choices from Airtable for `Subsystem` and `Vendor Name`/`Vendor` and uses those
-as dropdown options. Add `Notes` and `Time Created` fields to the manufacturing
-table so those values can be written back to Airtable.
+choices from all configured Airtable tables for `Subsystem` and
+`Vendor Name`/`Vendor` and uses those as dropdown options. Add `Notes` and
+`Time Created` fields to each manufacturing table so those values can be
+written back to Airtable.
+
+For multi-table bases, set `AIRTABLE_TABLES` to a comma-separated list of every
+part tracking table ID or exact table name. Keep `AIRTABLE_TABLE_ID` as the
+default fallback table. Route submissions by category with
+`AIRTABLE_TABLE_ROBOT`, `AIRTABLE_TABLE_SPARES`, `AIRTABLE_TABLE_LAB_GENERAL`,
+`AIRTABLE_TABLE_OFFSEASON`, and `AIRTABLE_TABLE_OTHER`, or use
+`AIRTABLE_CATEGORY_TABLE_MAP` with JSON values. When multiple tables are
+configured, the submit panel also shows a `Tracking table` selector for explicit
+manual routing.
 
 Slack notifications use incoming webhook URLs when configured. If webhook URLs
 are not configured, the app uses Slack `chat.postMessage` with
@@ -96,10 +112,23 @@ https://cheesy-parts.vercel.app/api/airtable/webhook?secret=YOUR_SECRET
 ```
 
 Set the same value in `AIRTABLE_WEBHOOK_SECRET`. Airtable Automations can send
-`recordId`, `oldStatus`, `newStatus`, and `changedBy` directly. The official
-Airtable Webhooks API can also be used by setting `AIRTABLE_WEBHOOK_ID`; the
-app drains webhook payloads, fetches changed records, compares cached status,
-and posts Slack notifications for detected status changes.
+`recordId`, `tableName` or `tableId`, `oldStatus`, `newStatus`, and `changedBy`
+directly. For separate Airtable tables, create one automation per table and send
+that table's exact name or ID in the payload, for example:
+
+```json
+{
+  "tableName": "Spares Tracking",
+  "recordId": "recXXXXXXXXXXXXXX",
+  "newStatus": "Ready for Assembly",
+  "changedBy": "Airtable"
+}
+```
+
+The official Airtable Webhooks API can also be used by setting
+`AIRTABLE_WEBHOOK_ID`; the app drains webhook payloads, fetches changed records,
+compares cached status, and posts Slack notifications for detected status
+changes when record/table IDs are available.
 
 When no Drawing PDF is manually uploaded, the submission API can attach an
 exported Onshape PDF automatically. It first searches drawing elements in the

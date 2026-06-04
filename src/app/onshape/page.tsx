@@ -113,6 +113,10 @@ function defaultsFromSearchParams(
     );
 
   return {
+    airtableTableId:
+      firstParam(params.airtableTableId) ?? firstParam(params.tableId) ?? "",
+    airtableTableName:
+      firstParam(params.airtableTableName) ?? firstParam(params.tableName) ?? "",
     partName,
     partNumber:
       firstParam(params.partNumber) ??
