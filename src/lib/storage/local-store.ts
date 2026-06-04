@@ -38,7 +38,12 @@ export async function readLocalRequests(): Promise<ManufacturingRequest[]> {
     return [];
   }
 
-  return JSON.parse(raw) as ManufacturingRequest[];
+  return (JSON.parse(raw) as Array<ManufacturingRequest & { description?: string }>).map(
+    (request) => ({
+      ...request,
+      notes: request.notes ?? request.description ?? "",
+    }),
+  );
 }
 
 export async function writeLocalRequests(requests: ManufacturingRequest[]) {

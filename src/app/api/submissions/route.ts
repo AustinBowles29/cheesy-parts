@@ -1,4 +1,5 @@
 import { saveUploadedFiles } from "@/lib/files";
+import { createOnshapeDrawingPdfAttachment } from "@/lib/integrations/onshape";
 import { createManufacturingRequest, ValidationError } from "@/lib/service";
 import type { SubmissionInput } from "@/lib/types";
 
@@ -25,6 +26,7 @@ export async function POST(req: Request) {
   try {
     const contentType = req.headers.get("content-type") ?? "";
     let input: SubmissionInput;
+    const warnings: string[] = [];
 
     if (contentType.includes("multipart/form-data")) {
       const formData = await req.formData();
@@ -34,8 +36,29 @@ export async function POST(req: Request) {
       input = await req.json();
     }
 
+    if (!input.attachments?.some((attachment) => attachment.kind === "drawing")) {
+      try {
+        const drawingAttachment = await createOnshapeDrawingPdfAttachment(
+          input,
+          req.url,
+        );
+        if (drawingAttachment) {
+          input.attachments = [...(input.attachments ?? []), drawingAttachment];
+        }
+      } catch (error) {
+        warnings.push(
+          error instanceof Error
+            ? `Onshape drawing PDF could not be attached: ${error.message}`
+            : "Onshape drawing PDF could not be attached.",
+        );
+      }
+    }
+
     const result = await createManufacturingRequest(input);
-    return Response.json(result, { status: 201 });
+    return Response.json(
+      { ...result, warnings: [...warnings, ...result.warnings] },
+      { status: 201 },
+    );
   } catch (error) {
     const status = error instanceof ValidationError ? 400 : 500;
     return Response.json(

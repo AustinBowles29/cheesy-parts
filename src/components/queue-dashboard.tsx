@@ -124,7 +124,7 @@ export function QueueDashboard({
       const searchTarget = [
         request.partName,
         request.partNumber,
-        request.description,
+        request.notes,
         request.subsystem,
         request.material,
         request.machineType,
@@ -456,9 +456,9 @@ export function QueueDashboard({
                   >
                     <td className="px-3 py-3">
                       <div className="font-medium">{request.partName}</div>
-                      {request.description && (
+                      {request.notes && (
                         <div className="mt-1 max-w-56 text-xs text-[#5c6f8a]">
-                          {request.description}
+                          {request.notes}
                         </div>
                       )}
                       <div className="mt-1 text-xs text-[#586158]">

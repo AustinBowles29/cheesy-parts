@@ -89,6 +89,7 @@ function buildOnshapeUrl(
 function defaultsFromSearchParams(
   params: Record<string, string | string[] | undefined>,
 ): SubmissionInput {
+  const context = onshapeContextFromParams(params, firstParam);
   const partName =
     firstParam(params.partName) ??
     firstParam(params.name) ??
@@ -118,7 +119,7 @@ function defaultsFromSearchParams(
       firstParam(params.number) ??
       firstParam(params.partNo) ??
       "",
-    description: firstParam(params.description) ?? "",
+    notes: firstParam(params.notes) ?? firstParam(params.description) ?? "",
     material,
     thickness,
     quantity: normalizeQuantity(firstParam(params.quantity) ?? 1),
@@ -128,6 +129,9 @@ function defaultsFromSearchParams(
     machineType: firstParam(params.machineType),
     onshapePartUrl,
     onshapeDrawingUrl,
+    onshapeDocumentId: context?.documentId,
+    onshapeWvm: context?.wvm,
+    onshapeWvmId: context?.wvmId,
     assemblyUrl,
     branchVersionReference:
       firstParam(params.branchVersionReference) ??
@@ -141,7 +145,10 @@ function defaultsFromSearchParams(
     category: firstParam(params.category) ?? "Robot",
     finish: firstParam(params.finish) ?? "Raw",
     submitter: firstParam(params.submitter) ?? "",
-    manufacturingNotes: firstParam(params.notes) ?? "",
+    manufacturingNotes:
+      firstParam(params.manufacturingNotes) ??
+      firstParam(params.fabricationNotes) ??
+      "",
     priority: firstParam(params.priority) ?? "",
     printMaterial: firstParam(params.printMaterial) ?? "",
     printColor: firstParam(params.printColor) ?? "",
@@ -164,9 +171,13 @@ function mergeAutofillDefaults(
     ...defaults,
     partName: defaults.partName || autofill.partName,
     partNumber: defaults.partNumber || autofill.partNumber,
-    description: defaults.description || autofill.description,
+    notes: defaults.notes || autofill.notes || autofill.description,
     material: defaults.material || autofill.material,
     thickness: defaults.thickness || autofill.thickness,
+    onshapeDrawingUrl:
+      defaults.onshapeDrawingUrl || autofill.onshapeDrawingUrl,
+    onshapeDrawingElementId:
+      defaults.onshapeDrawingElementId || autofill.onshapeDrawingElementId,
   };
 }
 

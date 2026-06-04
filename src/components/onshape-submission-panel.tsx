@@ -396,12 +396,12 @@ export function OnshapeSubmissionPanel({
                 />
               </label>
               <label className="field sm:col-span-2">
-                <span>Description</span>
+                <span>Notes</span>
                 <textarea
-                  name="description"
-                  defaultValue={defaults.description}
+                  name="notes"
+                  defaultValue={defaults.notes ?? defaults.description}
                   rows={3}
-                  placeholder="Short design or usage description"
+                  placeholder="Short design or manufacturing context"
                 />
               </label>
               <label className="field">
@@ -616,6 +616,34 @@ export function OnshapeSubmissionPanel({
                   name="onshapeDrawingUrl"
                   defaultValue={defaults.onshapeDrawingUrl}
                 />
+                {defaults.onshapeDrawingElementId && (
+                  <input
+                    type="hidden"
+                    name="onshapeDrawingElementId"
+                    value={defaults.onshapeDrawingElementId}
+                  />
+                )}
+                {defaults.onshapeDocumentId && (
+                  <input
+                    type="hidden"
+                    name="onshapeDocumentId"
+                    value={defaults.onshapeDocumentId}
+                  />
+                )}
+                {defaults.onshapeWvm && (
+                  <input
+                    type="hidden"
+                    name="onshapeWvm"
+                    value={defaults.onshapeWvm}
+                  />
+                )}
+                {defaults.onshapeWvmId && (
+                  <input
+                    type="hidden"
+                    name="onshapeWvmId"
+                    value={defaults.onshapeWvmId}
+                  />
+                )}
               </label>
               <label className="field">
                 <span>Assembly URL</span>

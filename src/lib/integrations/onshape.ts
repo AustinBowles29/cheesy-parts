@@ -1,6 +1,7 @@
 import { cookies } from "next/headers";
+import { saveGeneratedFile } from "../files";
 import { normalizeString } from "../manufacturing";
-import type { SubmissionInput } from "../types";
+import type { AttachmentRef, SubmissionInput } from "../types";
 
 const defaultAuthUrl = "https://oauth.onshape.com/oauth/authorize";
 const defaultTokenUrl = "https://oauth.onshape.com/oauth/token";
@@ -48,6 +49,16 @@ interface OnshapeElement {
   name?: string;
   type?: string;
   elementType?: string;
+  applicationElementType?: string;
+  mimeType?: string;
+}
+
+interface OnshapeTranslationResponse {
+  id: string;
+  requestState?: string;
+  resultExternalDataIds?: unknown;
+  resultElementIds?: unknown;
+  failureReason?: string | null;
 }
 
 export interface OnshapeContext {
@@ -197,7 +208,7 @@ export async function setOnshapeTokens(tokens: OnshapeTokenResponse) {
   }
 }
 
-async function getAccessToken() {
+export async function getOnshapeAccessToken() {
   const cookieStore = await cookies();
   const accessToken = cookieStore.get(accessTokenCookie)?.value;
   const expiresAt = Number(cookieStore.get(expiresAtCookie)?.value ?? 0);
@@ -612,10 +623,7 @@ async function fetchAssemblyElements(
     return [{ id: context.assemblyElementId }];
   }
 
-  const elements = await onshapeFetchJson<OnshapeElement[]>(
-    `/v10/documents/d/${context.documentId}/${context.wvm}/${context.wvmId}/elements`,
-    accessToken,
-  );
+  const elements = await fetchDocumentElements(context, accessToken);
 
   return elements.filter((element) => {
     const elementType = normalizeString(element.elementType).toUpperCase();
@@ -672,6 +680,16 @@ async function fetchBomPartNumber(input: {
   return "";
 }
 
+async function fetchDocumentElements(
+  context: OnshapeContext,
+  accessToken: string,
+): Promise<OnshapeElement[]> {
+  return onshapeFetchJson<OnshapeElement[]>(
+    `/v10/documents/d/${context.documentId}/${context.wvm}/${context.wvmId}/elements`,
+    accessToken,
+  );
+}
+
 async function onshapeFetchJson<T>(path: string, accessToken: string) {
   const response = await fetch(`${apiBaseUrl()}${path}`, {
     headers: {
@@ -686,6 +704,332 @@ async function onshapeFetchJson<T>(path: string, accessToken: string) {
   }
 
   return (await response.json()) as T;
+}
+
+async function onshapePostJson<T>(
+  path: string,
+  accessToken: string,
+  body: Record<string, unknown>,
+) {
+  const response = await fetch(`${apiBaseUrl()}${path}`, {
+    method: "POST",
+    headers: {
+      Accept: "application/json;charset=UTF-8; qs=0.09",
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json;charset=UTF-8; qs=0.09",
+    },
+    body: JSON.stringify(body),
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`Onshape API request failed (${response.status}): ${text}`);
+  }
+
+  return (await response.json()) as T;
+}
+
+async function onshapeFetchBytes(path: string, accessToken: string) {
+  const response = await fetch(`${apiBaseUrl()}${path}`, {
+    headers: {
+      Accept: "application/octet-stream",
+      Authorization: `Bearer ${accessToken}`,
+    },
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`Onshape API request failed (${response.status}): ${text}`);
+  }
+
+  return Buffer.from(await response.arrayBuffer());
+}
+
+function isDrawingElement(element: OnshapeElement) {
+  const markers = [
+    element.elementType,
+    element.type,
+    element.applicationElementType,
+    element.mimeType,
+  ]
+    .map((value) => normalizeString(value).toUpperCase())
+    .filter(Boolean);
+
+  return markers.some(
+    (value) => value.includes("DRAWING") || value.includes("APPLICATION"),
+  );
+}
+
+function onshapeElementUrl(context: OnshapeContext, elementId: string) {
+  return `https://cad.onshape.com/documents/${context.documentId}/${context.wvm}/${context.wvmId}/e/${elementId}`;
+}
+
+function collectStringValuesByKeys(
+  value: unknown,
+  keys: Set<string>,
+  results = new Set<string>(),
+) {
+  if (typeof value === "string") {
+    return results;
+  }
+
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      collectStringValuesByKeys(item, keys, results);
+    }
+
+    return results;
+  }
+
+  const record = asRecord(value);
+  if (!record) {
+    return results;
+  }
+
+  for (const [key, item] of Object.entries(record)) {
+    const normalizedKey = normalizedPropertyKey(key);
+    if (keys.has(normalizedKey)) {
+      const text = normalizeString(item);
+      if (text) {
+        results.add(text);
+      }
+    }
+
+    collectStringValuesByKeys(item, keys, results);
+  }
+
+  return results;
+}
+
+function drawingElementNameMatches(
+  element: OnshapeElement,
+  partName: string,
+  partNumber: string,
+) {
+  const drawingName = normalizedComparable(normalizeString(element.name));
+  if (!drawingName) {
+    return false;
+  }
+
+  return [partName, partNumber]
+    .map((value) => normalizedComparable(value))
+    .filter(Boolean)
+    .some((value) => drawingName === value);
+}
+
+function drawingViewsOnlyReferenceSelectedPart(input: {
+  views: unknown;
+  partId: string;
+  partName: string;
+}) {
+  const partIds = collectStringValuesByKeys(
+    input.views,
+    new Set(["partid", "idtag"]),
+  );
+  if (input.partId && partIds.size > 0) {
+    return partIds.size === 1 && partIds.has(input.partId);
+  }
+
+  const partNames = collectStringValuesByKeys(
+    input.views,
+    new Set(["partname", "modelname", "referencename"]),
+  );
+  const normalizedPartNames = new Set(
+    Array.from(partNames).map((name) => normalizedComparable(name)),
+  );
+  const selectedName = normalizedComparable(input.partName);
+  if (!selectedName || normalizedPartNames.size === 0) {
+    return null;
+  }
+
+  return normalizedPartNames.size === 1 && normalizedPartNames.has(selectedName);
+}
+
+async function fetchDrawingViews(
+  context: OnshapeContext,
+  accessToken: string,
+  drawingElementId: string,
+) {
+  return onshapeFetchJson<unknown>(
+    `/v8/drawings/d/${context.documentId}/${context.wvm}/${context.wvmId}/e/${drawingElementId}/views`,
+    accessToken,
+  );
+}
+
+async function findSinglePartDrawing(input: {
+  accessToken: string;
+  context: OnshapeContext;
+  partId: string;
+  partName: string;
+  partNumber: string;
+}) {
+  let elements: OnshapeElement[];
+  try {
+    elements = await fetchDocumentElements(input.context, input.accessToken);
+  } catch {
+    return null;
+  }
+
+  const drawings = elements.filter(isDrawingElement);
+  for (const drawing of drawings) {
+    const drawingElementId = normalizeString(drawing.id);
+    if (!drawingElementId) {
+      continue;
+    }
+
+    try {
+      const views = await fetchDrawingViews(
+        input.context,
+        input.accessToken,
+        drawingElementId,
+      );
+      const viewMatch = drawingViewsOnlyReferenceSelectedPart({
+          views,
+          partId: input.partId,
+          partName: input.partName,
+      });
+      if (viewMatch === true) {
+        return drawing;
+      }
+
+      if (
+        viewMatch === null &&
+        drawingElementNameMatches(drawing, input.partName, input.partNumber)
+      ) {
+        return drawing;
+      }
+    } catch {
+      if (
+        drawingElementNameMatches(drawing, input.partName, input.partNumber)
+      ) {
+        return drawing;
+      }
+    }
+  }
+
+  return null;
+}
+
+function firstTranslationResultId(value: unknown): string {
+  if (typeof value === "string") {
+    return value;
+  }
+
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const found = firstTranslationResultId(item);
+      if (found) {
+        return found;
+      }
+    }
+  }
+
+  return "";
+}
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function waitForTranslation(
+  translationId: string,
+  accessToken: string,
+): Promise<OnshapeTranslationResponse> {
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const translation = await onshapeFetchJson<OnshapeTranslationResponse>(
+      `/v9/translations/${translationId}`,
+      accessToken,
+    );
+    const state = normalizeString(translation.requestState).toUpperCase();
+
+    if (state === "DONE") {
+      return translation;
+    }
+
+    if (state === "FAILED") {
+      throw new Error(
+        translation.failureReason || "Onshape drawing PDF export failed.",
+      );
+    }
+
+    await sleep(400 * (attempt + 1));
+  }
+
+  throw new Error("Onshape drawing PDF export did not finish in time.");
+}
+
+async function exportDrawingPdf(input: {
+  accessToken: string;
+  documentId: string;
+  wvm: string;
+  wvmId: string;
+  drawingElementId: string;
+}) {
+  const translation = await onshapePostJson<OnshapeTranslationResponse>(
+    `/v6/drawings/d/${input.documentId}/${input.wvm}/${input.wvmId}/e/${input.drawingElementId}/translations`,
+    input.accessToken,
+    {
+      formatName: "PDF",
+      storeInDocument: false,
+    },
+  );
+  const finished = await waitForTranslation(translation.id, input.accessToken);
+  const externalDataId = firstTranslationResultId(finished.resultExternalDataIds);
+  if (externalDataId) {
+    return onshapeFetchBytes(
+      `/v6/documents/d/${input.documentId}/externaldata/${externalDataId}`,
+      input.accessToken,
+    );
+  }
+
+  const resultElementId = firstTranslationResultId(finished.resultElementIds);
+  if (resultElementId) {
+    return onshapeFetchBytes(
+      `/v6/blobelements/d/${input.documentId}/${input.wvm}/${input.wvmId}/e/${resultElementId}`,
+      input.accessToken,
+    );
+  }
+
+  throw new Error("Onshape drawing PDF export did not return a file.");
+}
+
+export async function createOnshapeDrawingPdfAttachment(
+  input: SubmissionInput,
+  requestUrl: string,
+): Promise<AttachmentRef | null> {
+  const drawingElementId = normalizeString(input.onshapeDrawingElementId);
+  const documentId = normalizeString(input.onshapeDocumentId);
+  const wvm = normalizeString(input.onshapeWvm);
+  const wvmId = normalizeString(input.onshapeWvmId);
+
+  if (!drawingElementId || !documentId || !wvm || !wvmId) {
+    return null;
+  }
+
+  const accessToken = await getOnshapeAccessToken();
+  if (!accessToken) {
+    return null;
+  }
+
+  const bytes = await exportDrawingPdf({
+    accessToken,
+    documentId,
+    wvm,
+    wvmId,
+    drawingElementId,
+  });
+  const filenameBase =
+    normalizeString(input.partNumber) ||
+    normalizeString(input.partName) ||
+    "onshape-drawing";
+
+  return saveGeneratedFile({
+    bytes,
+    contentType: "application/pdf",
+    filename: `${filenameBase}.pdf`,
+    kind: "drawing",
+    requestUrl,
+  });
 }
 
 function materialName(value: unknown): string {
@@ -757,7 +1101,7 @@ function partToDefaults(
 
   return {
     material,
-    description:
+    notes:
       metadataPropertyValue(metadata, ["Description", "description"]) ||
       normalizeString(part?.description),
     partName:
@@ -785,12 +1129,12 @@ export async function fetchOnshapePartMetadata(
     };
   }
 
-  const accessToken = await getAccessToken();
+  const accessToken = await getOnshapeAccessToken();
   if (!accessToken) {
     return {
       defaults: {},
       authUrl: onshapeOAuthStartUrl(returnTo),
-      warning: "Connect Onshape to auto-fill part name, part number, material, and description.",
+      warning: "Connect Onshape to auto-fill part name, part number, material, notes, and drawings.",
     };
   }
 
@@ -832,6 +1176,22 @@ export async function fetchOnshapePartMetadata(
       if (bomPartNumber) {
         defaults.partNumber = bomPartNumber;
       }
+    }
+
+    const drawing = await findSinglePartDrawing({
+      accessToken,
+      context,
+      partId: context.partId || normalizeString(part?.partId),
+      partName: defaults.partName ?? "",
+      partNumber: defaults.partNumber ?? "",
+    });
+    const drawingElementId = normalizeString(drawing?.id);
+    if (drawingElementId) {
+      defaults.onshapeDrawingElementId = drawingElementId;
+      defaults.onshapeDrawingUrl = onshapeElementUrl(context, drawingElementId);
+      defaults.onshapeDocumentId = context.documentId;
+      defaults.onshapeWvm = context.wvm;
+      defaults.onshapeWvmId = context.wvmId;
     }
 
     return { defaults };

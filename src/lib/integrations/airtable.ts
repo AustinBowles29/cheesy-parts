@@ -217,7 +217,7 @@ function requestToFields(request: ManufacturingRequest) {
   return {
     "Part Name": request.partName,
     "Part Number": request.partNumber,
-    Description: request.description || undefined,
+    Notes: request.notes || undefined,
     Quantity: request.quantity,
     Subsystem: request.subsystem,
     Category: request.category,
@@ -232,7 +232,7 @@ function requestToFields(request: ManufacturingRequest) {
     "Branch/Version Reference": request.branchVersionReference,
     Submitter: request.submitter,
     "Submitter Slack ID": request.submitterSlackId,
-    Timestamp: request.submittedAt,
+    "Time Created": request.submittedAt,
     Drawing: attachmentFields(request.attachments, "drawing"),
     DXF: attachmentFields(request.attachments, "dxf"),
     "Other files": attachmentFields(request.attachments, "other"),
@@ -278,7 +278,7 @@ export function mapAirtableRecord(record: AirtableRecord): ManufacturingRequest 
     airtableUrl: airtableRecordUrl(record.id),
     partName: fieldString(fields, "Part Name"),
     partNumber: fieldString(fields, "Part Number"),
-    description: fieldString(fields, "Description"),
+    notes: fieldString(fields, "Notes") || fieldString(fields, "Description"),
     quantity: fieldNumber(fields, "Quantity"),
     subsystem: fieldString(fields, "Subsystem"),
     category: coerceCategory(fields.Category),
@@ -293,6 +293,7 @@ export function mapAirtableRecord(record: AirtableRecord): ManufacturingRequest 
     submitter: fieldString(fields, "Submitter"),
     submitterSlackId: fieldString(fields, "Submitter Slack ID") || undefined,
     submittedAt:
+      fieldString(fields, "Time Created") ||
       fieldString(fields, "Timestamp") ||
       record.createdTime ||
       new Date().toISOString(),
@@ -346,7 +347,7 @@ export async function listAirtableRequests() {
   do {
     const url = new URL(tableUrl());
     url.searchParams.set("pageSize", "100");
-    url.searchParams.set("sort[0][field]", "Timestamp");
+    url.searchParams.set("sort[0][field]", "Time Created");
     url.searchParams.set("sort[0][direction]", "desc");
     if (offset) {
       url.searchParams.set("offset", offset);

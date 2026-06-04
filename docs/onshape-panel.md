@@ -7,7 +7,7 @@ the Onshape context can provide:
 
 - `partName`
 - `partNumber`
-- `description`
+- `notes`
 - `material`
 - `thickness`
 - `quantity`
@@ -15,6 +15,7 @@ the Onshape context can provide:
 - `machineType`
 - `onshapePartUrl`
 - `onshapeDrawingUrl`
+- `onshapeDrawingElementId`
 - `assemblyUrl`
 - `branchVersionReference`
 - `documentId`
@@ -61,8 +62,8 @@ ONSHAPE_REDIRECT_URI=https://cheesy-parts.vercel.app/oauthRedirect
 ```
 
 After a user connects Onshape, the panel fetches the selected Part Studio parts
-from Onshape and fills part name, part number, material, and description when the
-API returns those values.
+from Onshape and fills part name, part number, material, notes, and drawing
+links when the API returns those values.
 
 If selected-part metadata has no part number, the panel looks through Assembly
 BOMs in the same document and uses the first matching BOM part number. Matching
@@ -74,8 +75,15 @@ parts.
 
 If the Airtable token includes schema read access, the panel reads select-field
 choices from Airtable for `Subsystem` and `Vendor Name`/`Vendor` and uses those
-as dropdown options. Add a `Description` field to the manufacturing table if
-descriptions should be written back to Airtable.
+as dropdown options. Add `Notes` and `Time Created` fields to the manufacturing
+table so those values can be written back to Airtable.
+
+When no Drawing PDF is manually uploaded, the submission API can attach an
+exported Onshape PDF automatically. It first searches drawing elements in the
+same document and accepts only a drawing whose views reference exactly the
+selected part ID, falling back to exact part-name matching only when drawing
+view references are unavailable. Drawings that reference additional parts are
+ignored.
 
 Onshape App Store applications should use OAuth2 for user-authorized API access.
 For internal team use, the panel can be embedded directly and fed metadata from

@@ -80,7 +80,7 @@ export function buildManufacturingRequest(
     id: `mfg_${crypto.randomUUID()}`,
     partName,
     partNumber: normalizeString(input.partNumber),
-    description: normalizeString(input.description),
+    notes: normalizeString(input.notes) || normalizeString(input.description),
     quantity: normalizeQuantity(input.quantity),
     subsystem: normalizeString(input.subsystem),
     category: coerceCategory(input.category),
@@ -273,7 +273,7 @@ export async function createSpareRequest(input: {
   const result = await createManufacturingRequest({
     partName: source.partName,
     partNumber: source.partNumber,
-    description: source.description,
+    notes: source.notes,
     quantity: spareQuantity,
     subsystem: source.subsystem,
     category: "Spares",

@@ -51,7 +51,7 @@ export interface ManufacturingRequest {
   airtableUrl?: string;
   partName: string;
   partNumber: string;
-  description: string;
+  notes: string;
   quantity: number;
   subsystem: string;
   category: Category;
@@ -86,6 +86,7 @@ export interface ManufacturingRequest {
 export interface SubmissionInput {
   partName?: string;
   partNumber?: string;
+  notes?: string;
   description?: string;
   quantity?: number | string;
   subsystem?: string;
@@ -96,6 +97,10 @@ export interface SubmissionInput {
   machineType?: string;
   onshapePartUrl?: string;
   onshapeDrawingUrl?: string;
+  onshapeDrawingElementId?: string;
+  onshapeDocumentId?: string;
+  onshapeWvm?: string;
+  onshapeWvmId?: string;
   assemblyUrl?: string;
   branchVersionReference?: string;
   submitter?: string;

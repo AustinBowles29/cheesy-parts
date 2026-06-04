@@ -70,6 +70,28 @@ export async function saveUploadedFiles(formData: FormData, requestUrl: string) 
   return attachments;
 }
 
+export async function saveGeneratedFile(input: {
+  bytes: Buffer;
+  contentType: string;
+  filename: string;
+  kind: AttachmentKind;
+  requestUrl: string;
+}): Promise<AttachmentRef> {
+  await fs.mkdir(uploadDir, { recursive: true });
+  const baseUrl = new URL(input.requestUrl).origin;
+  const id = `${crypto.randomUUID()}-${safeFilename(input.filename)}`;
+  await fs.writeFile(path.join(uploadDir, id), input.bytes);
+
+  return {
+    id,
+    filename: input.filename,
+    contentType: input.contentType,
+    kind: input.kind,
+    size: input.bytes.length,
+    url: `${baseUrl}/api/files/${encodeURIComponent(id)}`,
+  };
+}
+
 export async function readUploadedFile(fileId: string) {
   const safeId = path.basename(fileId);
   const filePath = path.join(uploadDir, safeId);
