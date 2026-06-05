@@ -103,10 +103,13 @@ export function OnshapeSubmissionPanel({
     ...fieldOptions.machineTypes,
     ...MACHINE_TYPES,
   ]);
-  const postProcessOptions = uniqueStrings([
-    ...fieldOptions.postProcesses,
-    ...FINISHES,
-  ]);
+  const postProcessOptions = uniqueStrings(
+    fieldOptions.postProcesses.length > 0 ? fieldOptions.postProcesses : FINISHES,
+  );
+  const defaultFinish =
+    dropdownInitialValue(defaults.finish, postProcessOptions) ||
+    postProcessOptions[0] ||
+    "Raw";
   const defaultAirtableTableId =
     defaults.airtableTableId ?? airtableTables[0]?.id ?? "";
   const [submitter, setSubmitter] = useState(defaults.submitter ?? "");
@@ -574,7 +577,7 @@ export function OnshapeSubmissionPanel({
                 <span>Post-process</span>
                 <select
                   name="finish"
-                  defaultValue={defaults.finish ?? postProcessOptions[0] ?? "Raw"}
+                  defaultValue={defaultFinish}
                   onChange={() => clearInvalid("finish")}
                   required
                   {...invalidProps("finish")}

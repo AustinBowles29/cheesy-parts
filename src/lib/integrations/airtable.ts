@@ -597,7 +597,7 @@ function choiceValue(
     }
   }
 
-  return stringValue;
+  return undefined;
 }
 
 function statusChoiceAliases(status: ManufacturingRequest["status"]) {
@@ -627,6 +627,31 @@ function machineChoiceAliases(machineType: ManufacturingRequest["machineType"]) 
 
   if (machineType === "Laser") {
     return ["Laser cut", "Laser cutter"];
+  }
+
+  return [];
+}
+
+function finishChoiceAliases(finish: ManufacturingRequest["finish"]) {
+  const normalizedFinish = normalizeString(finish).toLowerCase();
+
+  if (normalizedFinish === "raw") {
+    return [
+      "None",
+      "No finish",
+      "No post-process",
+      "No Post-Process",
+      "No post process",
+      "No postprocessing",
+    ];
+  }
+
+  if (normalizedFinish === "powder coat") {
+    return ["Powdercoat", "Powder coat", "Powder"];
+  }
+
+  if (normalizedFinish === "anodize") {
+    return ["Anodized"];
   }
 
   return [];
@@ -770,7 +795,13 @@ function requestToFields(
   addMappedField(fields, table, ["Category"], request.category);
   addMappedField(fields, table, ["Raw material", "Material"], request.material);
   addMappedField(fields, table, ["Thickness"], request.thickness);
-  addMappedField(fields, table, ["Post-process", "Finish"], request.finish);
+  addMappedField(
+    fields,
+    table,
+    ["Post-process", "Finish"],
+    request.finish,
+    finishChoiceAliases(request.finish),
+  );
   addMappedField(
     fields,
     table,
