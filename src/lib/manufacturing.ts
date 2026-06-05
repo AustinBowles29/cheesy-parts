@@ -81,7 +81,7 @@ export function coerceCategory(value: unknown): Category {
 }
 
 export function coerceFinish(value: unknown): Finish {
-  return matchingChoice(FINISHES, value) ?? DEFAULT_FINISH;
+  return matchingChoice(FINISHES, value) ?? normalizeString(value, DEFAULT_FINISH);
 }
 
 export function coerceMachineType(value: unknown): MachineType | undefined {

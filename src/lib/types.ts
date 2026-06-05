@@ -8,7 +8,7 @@ import type {
 } from "./constants";
 
 export type ManufacturingStatus = (typeof STATUSES)[number];
-export type Finish = (typeof FINISHES)[number];
+export type Finish = (typeof FINISHES)[number] | (string & {});
 export type Category = (typeof CATEGORIES)[number];
 export type MachineType = (typeof MACHINE_TYPES)[number];
 export type AttachmentKind = (typeof ATTACHMENT_KINDS)[number];
@@ -129,6 +129,8 @@ export interface SubmissionInput {
 export interface SubmissionFieldOptions {
   subsystems: string[];
   vendors: string[];
+  machineTypes: string[];
+  postProcesses: string[];
   airtableTables?: Array<{
     id: string;
     name: string;

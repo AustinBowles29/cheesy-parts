@@ -2,10 +2,10 @@ import type { Metadata } from "next";
 import { OnshapeSubmissionPanel } from "@/components/onshape-submission-panel";
 import { getAirtableSubmissionFieldOptions } from "@/lib/integrations/airtable";
 import {
+  fetchOnshapeCurrentUser,
   fetchOnshapePartMetadata,
   onshapeContextFromParams,
 } from "@/lib/integrations/onshape";
-import { getManufacturingSlackUsers } from "@/lib/integrations/slack-users";
 import {
   inferSubsystemFromTitle,
   normalizeQuantity,
@@ -178,6 +178,7 @@ function mergeAutofillDefaults(
     notes: defaults.notes || autofill.notes || autofill.description,
     material: defaults.material || autofill.material,
     thickness: defaults.thickness || autofill.thickness,
+    submitter: defaults.submitter || autofill.submitter,
     onshapeDrawingUrl:
       defaults.onshapeDrawingUrl || autofill.onshapeDrawingUrl,
     onshapeDrawingElementId:
@@ -191,8 +192,8 @@ export default async function OnshapePage({
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const params = await searchParams;
-  const [manufacturingUsers, onshapeMetadata, fieldOptions] = await Promise.all([
-    getManufacturingSlackUsers(),
+  const [onshapeUser, onshapeMetadata, fieldOptions] = await Promise.all([
+    fetchOnshapeCurrentUser(),
     fetchOnshapePartMetadata(
       onshapeContextFromParams(params, firstParam),
       `/onshape${paramsToQueryString(params)}`,
@@ -203,14 +204,15 @@ export default async function OnshapePage({
   return (
     <OnshapeSubmissionPanel
       defaults={mergeAutofillDefaults(
-        defaultsFromSearchParams(params),
+        mergeAutofillDefaults(
+          defaultsFromSearchParams(params),
+          onshapeUser.defaults,
+        ),
         onshapeMetadata.defaults,
       )}
       fieldOptions={fieldOptions}
-      manufacturingUsers={manufacturingUsers.users}
       onshapeAuthUrl={onshapeMetadata.authUrl}
       onshapeWarning={onshapeMetadata.warning}
-      userWarning={manufacturingUsers.warning}
     />
   );
 }

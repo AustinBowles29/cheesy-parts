@@ -503,9 +503,9 @@ export function QueueDashboard({
                       <span className="rounded-full bg-[#e7edf5] px-2 py-1 text-xs font-semibold text-[#254668]">
                         {request.category}
                       </span>
-                      {(request.airtableTableName || request.airtableTableId) && (
+                      {request.airtableTableName && (
                         <div className="mt-2 max-w-36 text-xs text-[#5c6f8a]">
-                          {request.airtableTableName ?? request.airtableTableId}
+                          {request.airtableTableName}
                         </div>
                       )}
                     </td>

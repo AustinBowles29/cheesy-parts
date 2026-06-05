@@ -15,10 +15,8 @@ import {
   MACHINE_TYPES,
   PRIORITIES,
 } from "@/lib/constants";
-import { deriveMachineType } from "@/lib/manufacturing";
+import { coerceMachineType, deriveMachineType } from "@/lib/manufacturing";
 import type {
-  MachineType,
-  SlackUser,
   SubmissionFieldOptions,
   SubmissionInput,
 } from "@/lib/types";
@@ -27,10 +25,8 @@ import { ToastViewport, useToasts } from "./toast";
 interface OnshapeSubmissionPanelProps {
   defaults: SubmissionInput;
   fieldOptions: SubmissionFieldOptions;
-  manufacturingUsers: SlackUser[];
   onshapeAuthUrl?: string;
   onshapeWarning?: string;
-  userWarning?: string;
 }
 
 type SubmitState =
@@ -45,9 +41,10 @@ const requiredFields = [
   { name: "material", label: "Material" },
   { name: "quantity", label: "Quantity" },
   { name: "machineType", label: "Machine type" },
-  { name: "submitter", label: "Submitter" },
+  { name: "submitter", label: "Owner" },
+  { name: "airtableTableId", label: "Tracking table" },
   { name: "category", label: "Category" },
-  { name: "finish", label: "Finish" },
+  { name: "finish", label: "Post-process" },
   { name: "priority", label: "Priority" },
 ] as const;
 
@@ -91,22 +88,30 @@ function dropdownInitialValue(value: string | undefined, options: string[]) {
   return options.includes(trimmed) ? trimmed : "";
 }
 
+function uniqueStrings(values: readonly string[]) {
+  return Array.from(new Set(values.filter(Boolean)));
+}
+
 export function OnshapeSubmissionPanel({
   defaults,
   fieldOptions,
-  manufacturingUsers,
   onshapeAuthUrl,
   onshapeWarning,
-  userWarning,
 }: OnshapeSubmissionPanelProps) {
-  const users =
-    manufacturingUsers.length > 0
-      ? manufacturingUsers
-      : [{ slackUserId: "local-manufacturing", displayName: "Manufacturing" }];
   const airtableTables = fieldOptions.airtableTables ?? [];
-  const defaultAirtableTableId = defaults.airtableTableId ?? "";
-  const [selectedSubmitterId, setSelectedSubmitterId] = useState(
-    users[0].slackUserId,
+  const machineOptions = uniqueStrings([
+    ...fieldOptions.machineTypes,
+    ...MACHINE_TYPES,
+  ]);
+  const postProcessOptions = uniqueStrings([
+    ...fieldOptions.postProcesses,
+    ...FINISHES,
+  ]);
+  const defaultAirtableTableId =
+    defaults.airtableTableId ?? airtableTables[0]?.id ?? "";
+  const [submitter, setSubmitter] = useState(defaults.submitter ?? "");
+  const [selectedAirtableTableId, setSelectedAirtableTableId] = useState(
+    defaultAirtableTableId,
   );
   const formRef = useRef<HTMLFormElement>(null);
   const [partName, setPartName] = useState(defaults.partName ?? "");
@@ -120,26 +125,26 @@ export function OnshapeSubmissionPanel({
     dropdownInitialValue(defaults.vendorName, fieldOptions.vendors),
   );
   const [hasDrawing, setHasDrawing] = useState(false);
-  const [machineOverride, setMachineOverride] = useState(defaults.machineType ?? "");
+  const [machineOverride, setMachineOverride] = useState(() =>
+    dropdownInitialValue(defaults.machineType, machineOptions),
+  );
   const [submitState, setSubmitState] = useState<SubmitState>({
     status: "idle",
   });
   const [invalidFields, setInvalidFields] = useState<Set<string>>(new Set());
   const { toasts, addToast, dismissToast } = useToasts(
     initialToasts(
-      userWarning,
       onshapeAuthUrl ? undefined : onshapeWarning,
       fieldOptions.warning,
     ),
   );
 
-  const selectedSubmitter =
-    users.find((user) => user.slackUserId === selectedSubmitterId) ?? users[0];
   const inferredMachineType = useMemo(
     () => deriveMachineType({ material, thickness, partName, hasDrawing }),
     [material, thickness, partName, hasDrawing],
   );
-  const machineType = (machineOverride || inferredMachineType) as MachineType;
+  const machineSelection = machineOverride || inferredMachineType;
+  const machineType = coerceMachineType(machineSelection) ?? inferredMachineType;
   const is3DP = machineType === "3DP";
   const isVendor = machineType === "Vendor";
 
@@ -183,11 +188,18 @@ export function OnshapeSubmissionPanel({
   function validateForm(formData: FormData) {
     const missing = requiredFields.filter((field) => {
       if (field.name === "machineType") {
-        return machineType.trim().length === 0;
+        return machineSelection.trim().length === 0;
       }
 
       if (field.name === "submitter") {
-        return selectedSubmitter.displayName.trim().length === 0;
+        return submitter.trim().length === 0;
+      }
+
+      if (field.name === "airtableTableId") {
+        return (
+          airtableTables.length > 0 &&
+          selectedAirtableTableId.trim().length === 0
+        );
       }
 
       const value = formData.get(field.name);
@@ -466,15 +478,15 @@ export function OnshapeSubmissionPanel({
                 <span>Machine type</span>
                 <select
                   name="machineType"
-                  value={machineType}
+                  value={machineSelection}
                   onChange={(event) => {
-                    setMachineOverride(event.target.value as MachineType);
+                    setMachineOverride(event.target.value);
                     clearInvalid("machineType");
                   }}
                   required
                   {...invalidProps("machineType")}
                 >
-                  {MACHINE_TYPES.map((item) => (
+                  {machineOptions.map((item) => (
                     <option key={item}>{item}</option>
                   ))}
                 </select>
@@ -489,33 +501,19 @@ export function OnshapeSubmissionPanel({
             </div>
             <div className="grid gap-3">
               <label className="field">
-                <span>Submitter</span>
-                <select
-                  value={selectedSubmitterId}
+                <span>Owner</span>
+                <input
+                  name="submitter"
+                  value={submitter}
                   onChange={(event) => {
-                    setSelectedSubmitterId(event.target.value);
+                    setSubmitter(event.target.value);
                     clearInvalid("submitter");
                   }}
+                  placeholder="Auto-filled from Onshape when available"
                   required
                   {...invalidProps("submitter")}
-                >
-                  {users.map((user) => (
-                    <option key={user.slackUserId} value={user.slackUserId}>
-                      {user.displayName}
-                    </option>
-                  ))}
-                </select>
+                />
               </label>
-              <input
-                type="hidden"
-                name="submitter"
-                value={selectedSubmitter.displayName}
-              />
-              <input
-                type="hidden"
-                name="submitterSlackId"
-                value={selectedSubmitter.slackUserId}
-              />
               <label className="field">
                 <span>Category</span>
                 <select
@@ -532,12 +530,17 @@ export function OnshapeSubmissionPanel({
               </label>
               {airtableTables.length > 1 && (
                 <label className="field">
-                  <span>Tracking table</span>
+                  <span>Submit to table</span>
                   <select
                     name="airtableTableId"
-                    defaultValue={defaultAirtableTableId}
+                    value={selectedAirtableTableId}
+                    onChange={(event) => {
+                      setSelectedAirtableTableId(event.target.value);
+                      clearInvalid("airtableTableId");
+                    }}
+                    required
+                    {...invalidProps("airtableTableId")}
                   >
-                    <option value="">Category default</option>
                     {airtableTables.map((table) => (
                       <option key={table.id} value={table.id}>
                         {table.name}
@@ -568,15 +571,15 @@ export function OnshapeSubmissionPanel({
                 />
               )}
               <label className="field">
-                <span>Finish</span>
+                <span>Post-process</span>
                 <select
                   name="finish"
-                  defaultValue={defaults.finish ?? "Raw"}
+                  defaultValue={defaults.finish ?? postProcessOptions[0] ?? "Raw"}
                   onChange={() => clearInvalid("finish")}
                   required
                   {...invalidProps("finish")}
                 >
-                  {FINISHES.map((item) => (
+                  {postProcessOptions.map((item) => (
                     <option key={item}>{item}</option>
                   ))}
                 </select>

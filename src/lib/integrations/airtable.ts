@@ -70,6 +70,21 @@ interface AirtableTableHint {
 
 const apiBase = "https://api.airtable.com/v0";
 const defaultQueueView = "To manufacture";
+const readonlyFieldTypes = new Set([
+  "aiText",
+  "autoNumber",
+  "button",
+  "count",
+  "createdBy",
+  "createdTime",
+  "externalSyncSource",
+  "formula",
+  "lastModifiedBy",
+  "lastModifiedTime",
+  "lookup",
+  "multipleLookupValues",
+  "rollup",
+]);
 
 function token() {
   return (
@@ -202,22 +217,65 @@ function configuredQueueTableTargets() {
   return configuredTableTargets();
 }
 
-async function configuredCanonicalQueueTableTargets() {
-  const targets = configuredQueueTableTargets();
-  const needsSchema = targets.some((target) => target.airtableTableName);
+function configuredSubmissionTableTargets() {
+  const explicitSubmissionValues = [
+    ...splitEnvList(process.env.AIRTABLE_SUBMISSION_TABLES),
+    ...splitEnvList(process.env.AIRTABLE_SUBMISSION_TABLE_NAMES),
+  ];
 
-  if (!needsSchema) {
-    return targets;
+  if (explicitSubmissionValues.length > 0) {
+    return tableTargetsFromValues(explicitSubmissionValues);
   }
 
+  const explicitTableValues = [
+    ...splitEnvList(process.env.AIRTABLE_TABLES),
+    ...splitEnvList(process.env.AIRTABLE_TABLE_NAMES),
+  ];
+
+  if (explicitTableValues.length > 0) {
+    return tableTargetsFromValues([tableIdOrName(), ...explicitTableValues]);
+  }
+
+  return configuredTableTargets();
+}
+
+function configuredAnyTableTargets() {
+  return tableTargetsFromValues([
+    tableIdOrName(),
+    ...splitEnvList(process.env.AIRTABLE_TABLES),
+    ...splitEnvList(process.env.AIRTABLE_TABLE_NAMES),
+    ...splitEnvList(process.env.AIRTABLE_QUEUE_TABLES),
+    ...splitEnvList(process.env.AIRTABLE_QUEUE_TABLE_NAMES),
+    ...splitEnvList(process.env.AIRTABLE_SUBMISSION_TABLES),
+    ...splitEnvList(process.env.AIRTABLE_SUBMISSION_TABLE_NAMES),
+    ...Array.from(categoryTableMap().values()),
+  ]);
+}
+
+async function fetchBaseSchema() {
   const base = baseId();
   if (!base) {
+    return null;
+  }
+
+  return airtableFetch<AirtableBaseSchemaResponse>(
+    `${apiBase}/meta/bases/${base}/tables`,
+  );
+}
+
+async function canonicalizeTableTargets(targets: AirtableTableTarget[]) {
+  let schema: AirtableBaseSchemaResponse | null = null;
+
+  try {
+    schema = await fetchBaseSchema();
+  } catch {
     return targets;
   }
 
-  const schema = await airtableFetch<AirtableBaseSchemaResponse>(
-    `${apiBase}/meta/bases/${base}/tables`,
-  );
+  if (!schema) {
+    return targets;
+  }
+
   const seen = new Set<string>();
   const canonicalTargets: AirtableTableTarget[] = [];
 
@@ -245,6 +303,10 @@ async function configuredCanonicalQueueTableTargets() {
   return canonicalTargets;
 }
 
+async function configuredCanonicalQueueTableTargets() {
+  return canonicalizeTableTargets(configuredQueueTableTargets());
+}
+
 function queueViewForTarget(target: AirtableTableTarget) {
   return (
     normalizeString(process.env[`AIRTABLE_QUEUE_VIEW_${envKeySuffix(target.value)}`]) ||
@@ -255,11 +317,11 @@ function queueViewForTarget(target: AirtableTableTarget) {
 }
 
 export function isAirtableConfigured() {
-  return Boolean(token() && baseId() && configuredTableTargets().length > 0);
+  return Boolean(token() && baseId() && configuredAnyTableTargets().length > 0);
 }
 
 function isAirtableSchemaConfigured() {
-  return Boolean(token() && baseId() && configuredTableTargets().length > 0);
+  return Boolean(token() && baseId() && configuredSubmissionTableTargets().length > 0);
 }
 
 function tableUrl(target = resolveAirtableTableTarget()) {
@@ -313,6 +375,33 @@ async function airtableFetch<T>(url: string, init?: RequestInit): Promise<T> {
   return (await response.json()) as T;
 }
 
+async function tableSchemaForTarget(target?: AirtableTableTarget) {
+  let schema: AirtableBaseSchemaResponse | null = null;
+
+  try {
+    schema = await fetchBaseSchema();
+  } catch {
+    return { target, table: null };
+  }
+
+  const table = schema?.tables.find(
+    (item) => item.id === target?.value || item.name === target?.value,
+  );
+
+  if (!table) {
+    return { target, table: null };
+  }
+
+  return {
+    target: {
+      value: table.id,
+      airtableTableId: table.id,
+      airtableTableName: table.name,
+    },
+    table,
+  };
+}
+
 function uniqueSorted(values: string[]) {
   return Array.from(new Set(values.filter(Boolean))).sort((a, b) =>
     a.localeCompare(b),
@@ -320,7 +409,9 @@ function uniqueSorted(values: string[]) {
 }
 
 function configuredTables(schema: AirtableBaseSchemaResponse) {
-  const values = new Set(configuredTableTargets().map((target) => target.value));
+  const values = new Set(
+    configuredSubmissionTableTargets().map((target) => target.value),
+  );
   return schema.tables.filter(
     (table) => values.has(table.id) || values.has(table.name),
   );
@@ -352,7 +443,13 @@ function fieldChoices(field: AirtableFieldSchema | undefined) {
 
 export async function getAirtableSubmissionFieldOptions(): Promise<SubmissionFieldOptions> {
   if (!isAirtableSchemaConfigured()) {
-    return { subsystems: [], vendors: [], airtableTables: [] };
+    return {
+      subsystems: [],
+      vendors: [],
+      machineTypes: [],
+      postProcesses: [],
+      airtableTables: [],
+    };
   }
 
   try {
@@ -366,6 +463,8 @@ export async function getAirtableSubmissionFieldOptions(): Promise<SubmissionFie
       return {
         subsystems: [],
         vendors: [],
+        machineTypes: [],
+        postProcesses: [],
         airtableTables: [],
         warning: "Airtable tables were not found, so dropdown options were not loaded.",
       };
@@ -384,6 +483,16 @@ export async function getAirtableSubmissionFieldOptions(): Promise<SubmissionFie
           ),
         ),
       ),
+      machineTypes: uniqueSorted(
+        tables.flatMap((table) =>
+          fieldChoices(fieldByName(table, ["Machine", "Machine Type"])),
+        ),
+      ),
+      postProcesses: uniqueSorted(
+        tables.flatMap((table) =>
+          fieldChoices(fieldByName(table, ["Post-process", "Finish"])),
+        ),
+      ),
       airtableTables: tables.map((table) => ({
         id: table.id,
         name: table.name,
@@ -393,6 +502,8 @@ export async function getAirtableSubmissionFieldOptions(): Promise<SubmissionFie
     return {
       subsystems: [],
       vendors: [],
+      machineTypes: [],
+      postProcesses: [],
       airtableTables: [],
       warning:
         error instanceof Error
@@ -436,42 +547,273 @@ function attachmentFields(
     }));
 }
 
-function requestToFields(request: ManufacturingRequest) {
-  return {
-    "Part Name": request.partName,
-    "Part Number": request.partNumber,
-    Notes: request.notes || undefined,
-    Quantity: request.quantity,
-    Subsystem: request.subsystem,
-    Category: request.category,
-    Material: request.material,
-    Thickness: request.thickness,
-    Finish: request.finish,
-    "Machine Type": request.machineType,
-    Status: request.status,
-    "Onshape Part URL": request.onshapePartUrl,
-    "Onshape Drawing URL": request.onshapeDrawingUrl,
-    "Assembly URL": request.assemblyUrl,
-    "Branch/Version Reference": request.branchVersionReference,
-    Submitter: request.submitter,
-    "Submitter Slack ID": request.submitterSlackId,
-    "Time Created": request.submittedAt,
-    Drawing: attachmentFields(request.attachments, "drawing"),
-    DXF: attachmentFields(request.attachments, "dxf"),
-    "Other files": attachmentFields(request.attachments, "other"),
-    "Manufacturing Notes": request.manufacturingNotes,
-    Priority: request.priority,
-    "Print Material": request.printMaterial,
-    "Print Color": request.printColor,
-    Infill: request.infill,
-    "Layer Height": request.layerHeight,
-    "Printer Notes": request.printerNotes,
-    "Vendor Name": request.vendorName,
-    "Quote Required": request.quoteRequired,
-    "Lead Time": request.leadTime,
-    "Vendor Notes": request.vendorNotes,
-    "Audit History": JSON.stringify(request.auditHistory),
-  };
+function writableFieldByName(
+  table: AirtableTableSchema | null | undefined,
+  names: string[],
+) {
+  const normalizedNames = names.map((name) => name.toLowerCase());
+  return table?.fields.find(
+    (field) =>
+      normalizedNames.includes(field.name.toLowerCase()) &&
+      !readonlyFieldTypes.has(field.type),
+  );
+}
+
+function choiceNames(field: AirtableFieldSchema | undefined) {
+  return (field?.options?.choices ?? [])
+    .map((choice) => normalizeString(choice.name))
+    .filter(Boolean);
+}
+
+function choiceValue(
+  field: AirtableFieldSchema | undefined,
+  value: unknown,
+  aliases: string[] = [],
+) {
+  const stringValue = normalizeString(value);
+  if (!stringValue) {
+    return undefined;
+  }
+
+  const choices = choiceNames(field);
+  if (choices.length === 0) {
+    return stringValue;
+  }
+
+  const candidateValues = [stringValue, ...aliases];
+  for (const candidate of candidateValues) {
+    const match = choices.find(
+      (choice) => choice.toLowerCase() === candidate.toLowerCase(),
+    );
+    if (match) {
+      return match;
+    }
+  }
+
+  return stringValue;
+}
+
+function statusChoiceAliases(status: ManufacturingRequest["status"]) {
+  if (status === "Ready for Manufacture") {
+    return ["Ready for MFG", "Ready for manufacture", "Ready for manufacturing"];
+  }
+
+  if (status === "Ready for Anodize/Powdercoat") {
+    return ["Need to Post-Process", "Needs post-process", "Ready for post-process"];
+  }
+
+  if (status === "Manufacturing In Progress") {
+    return ["MFG in progress", "Manufacturing in progress"];
+  }
+
+  return [];
+}
+
+function machineChoiceAliases(machineType: ManufacturingRequest["machineType"]) {
+  if (machineType === "Mill") {
+    return ["CNC Mill"];
+  }
+
+  if (machineType === "3DP") {
+    return ["3D Print", "3D Printed"];
+  }
+
+  if (machineType === "Laser") {
+    return ["Laser cut", "Laser cutter"];
+  }
+
+  return [];
+}
+
+function priorityNumber(priority: ManufacturingRequest["priority"]) {
+  if (priority === "Critical") {
+    return 1;
+  }
+
+  if (priority === "High") {
+    return 2;
+  }
+
+  if (priority === "Normal") {
+    return 3;
+  }
+
+  if (priority === "Low") {
+    return 4;
+  }
+
+  return undefined;
+}
+
+function fieldValue(
+  field: AirtableFieldSchema | undefined,
+  value: unknown,
+  aliases: string[] = [],
+) {
+  if (value === undefined || value === null || value === "") {
+    return undefined;
+  }
+
+  if (field?.type === "multipleSelects") {
+    const selectedChoice = choiceValue(field, value, aliases);
+    return selectedChoice ? [selectedChoice] : undefined;
+  }
+
+  if (field?.type === "singleSelect") {
+    return choiceValue(field, value, aliases);
+  }
+
+  return value;
+}
+
+function addMappedField(
+  fields: Record<string, unknown>,
+  table: AirtableTableSchema | null | undefined,
+  names: string[],
+  value: unknown,
+  aliases: string[] = [],
+) {
+  const field = writableFieldByName(table, names);
+  if (!field) {
+    return;
+  }
+
+  const mappedValue = fieldValue(field, value, aliases);
+  if (mappedValue !== undefined) {
+    fields[field.name] = mappedValue;
+  }
+}
+
+function requestToFields(
+  request: ManufacturingRequest,
+  table?: AirtableTableSchema | null,
+) {
+  if (!table) {
+    return {
+      "Part Name": request.partName,
+      "Part Number": request.partNumber,
+      Notes: request.notes || undefined,
+      Quantity: request.quantity,
+      Subsystem: request.subsystem,
+      Category: request.category,
+      Material: request.material,
+      Thickness: request.thickness,
+      Finish: request.finish,
+      "Machine Type": request.machineType,
+      Status: request.status,
+      "Onshape Part URL": request.onshapePartUrl,
+      "Onshape Drawing URL": request.onshapeDrawingUrl,
+      "Assembly URL": request.assemblyUrl,
+      "Branch/Version Reference": request.branchVersionReference,
+      Submitter: request.submitter,
+      "Submitter Slack ID": request.submitterSlackId,
+      "Time Created": request.submittedAt,
+      Drawing: attachmentFields(request.attachments, "drawing"),
+      DXF: attachmentFields(request.attachments, "dxf"),
+      "Other files": attachmentFields(request.attachments, "other"),
+      "Manufacturing Notes": request.manufacturingNotes,
+      Priority: request.priority,
+      "Print Material": request.printMaterial,
+      "Print Color": request.printColor,
+      Infill: request.infill,
+      "Layer Height": request.layerHeight,
+      "Printer Notes": request.printerNotes,
+      "Vendor Name": request.vendorName,
+      "Quote Required": request.quoteRequired,
+      "Lead Time": request.leadTime,
+      "Vendor Notes": request.vendorNotes,
+      "Audit History": JSON.stringify(request.auditHistory),
+    };
+  }
+
+  const fields: Record<string, unknown> = {};
+  const priorityField = writableFieldByName(table, ["Mfg. priority", "Priority"]);
+  const priorityValue =
+    priorityField?.type === "number"
+      ? priorityNumber(request.priority)
+      : request.priority;
+
+  addMappedField(
+    fields,
+    table,
+    ["Part Name", "Name", "name", "Description"],
+    request.partName,
+  );
+  addMappedField(
+    fields,
+    table,
+    ["Part Number", "Part number", "Part No", "Part #"],
+    request.partNumber,
+  );
+  addMappedField(fields, table, ["Notes", "Manufacturing Notes"], request.notes);
+  addMappedField(
+    fields,
+    table,
+    [
+      "Mfg. / Order Qty",
+      "Mfg./Order Qty",
+      "Mfg. / Order",
+      "Quantity to Order / MFG",
+      "Quantity",
+      "Quantity per robot",
+    ],
+    request.quantity,
+  );
+  addMappedField(fields, table, ["Subsystem", "Subsystems"], request.subsystem);
+  addMappedField(fields, table, ["Category"], request.category);
+  addMappedField(fields, table, ["Raw material", "Material"], request.material);
+  addMappedField(fields, table, ["Thickness"], request.thickness);
+  addMappedField(fields, table, ["Post-process", "Finish"], request.finish);
+  addMappedField(
+    fields,
+    table,
+    ["Machine", "Machine Type"],
+    request.machineType,
+    machineChoiceAliases(request.machineType),
+  );
+  addMappedField(
+    fields,
+    table,
+    ["Status"],
+    request.status,
+    statusChoiceAliases(request.status),
+  );
+  addMappedField(fields, table, ["Owner", "Submitter"], request.submitter);
+  addMappedField(fields, table, ["Submitter Slack ID"], request.submitterSlackId);
+  addMappedField(
+    fields,
+    table,
+    ["Time Created", "Timestamp", "Creation Date", "Created Date", "Date Created"],
+    request.submittedAt,
+  );
+  addMappedField(fields, table, ["Mfg. priority", "Priority"], priorityValue);
+  addMappedField(fields, table, ["Onshape Part URL"], request.onshapePartUrl);
+  addMappedField(fields, table, ["Onshape Drawing URL"], request.onshapeDrawingUrl);
+  addMappedField(fields, table, ["Assembly URL"], request.assemblyUrl);
+  addMappedField(
+    fields,
+    table,
+    ["Branch/Version Reference"],
+    request.branchVersionReference,
+  );
+  addMappedField(
+    fields,
+    table,
+    ["Drawing", "Drawing PDF"],
+    attachmentFields(request.attachments, "drawing"),
+  );
+  addMappedField(fields, table, ["Print Material"], request.printMaterial);
+  addMappedField(fields, table, ["Print Color"], request.printColor);
+  addMappedField(fields, table, ["Infill"], request.infill);
+  addMappedField(fields, table, ["Layer Height"], request.layerHeight);
+  addMappedField(fields, table, ["Printer Notes"], request.printerNotes);
+  addMappedField(fields, table, ["Vendor Name", "Vendor", "Vendor (if COTS)"], request.vendorName);
+  addMappedField(fields, table, ["Quote Required"], request.quoteRequired);
+  addMappedField(fields, table, ["Lead Time"], request.leadTime);
+  addMappedField(fields, table, ["Vendor Notes"], request.vendorNotes);
+  addMappedField(fields, table, ["Audit History"], JSON.stringify(request.auditHistory));
+
+  return fields;
 }
 
 function fieldString(fields: Record<string, unknown>, name: string) {
@@ -620,11 +962,12 @@ export function mapAirtableRecord(
 }
 
 export async function createAirtableRecord(request: ManufacturingRequest) {
-  const target = resolveAirtableTableTarget(request);
+  const resolvedTarget = resolveAirtableTableTarget(request);
+  const { target, table } = await tableSchemaForTarget(resolvedTarget);
   const payload = {
     records: [
       {
-        fields: requestToFields(request),
+        fields: requestToFields(request, table),
       },
     ],
   };

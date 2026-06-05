@@ -44,6 +44,17 @@ interface OnshapeMetadata {
   properties?: OnshapeMetadataProperty[];
 }
 
+interface OnshapeUserProfile {
+  id?: string;
+  name?: string;
+  email?: string;
+  firstName?: string;
+  lastName?: string;
+  nickname?: string;
+  documentationName?: string;
+  user?: OnshapeUserProfile;
+}
+
 interface OnshapeElement {
   id?: string;
   name?: string;
@@ -74,6 +85,10 @@ export interface OnshapeMetadataResult {
   defaults: SubmissionInput;
   warning?: string;
   authUrl?: string;
+}
+
+export interface OnshapeUserResult {
+  defaults: SubmissionInput;
 }
 
 function clientId() {
@@ -218,6 +233,47 @@ export async function getOnshapeAccessToken() {
   }
 
   return accessToken;
+}
+
+function onshapeUserDisplayName(profile: OnshapeUserProfile) {
+  const fullName = [profile.firstName, profile.lastName]
+    .map((name) => normalizeString(name))
+    .filter(Boolean)
+    .join(" ");
+
+  return (
+    normalizeString(profile.documentationName) ||
+    normalizeString(profile.name) ||
+    fullName ||
+    normalizeString(profile.nickname) ||
+    normalizeString(profile.email)
+  );
+}
+
+export async function fetchOnshapeCurrentUser(): Promise<OnshapeUserResult> {
+  if (!isOnshapeOAuthConfigured()) {
+    return { defaults: {} };
+  }
+
+  const accessToken = await getOnshapeAccessToken();
+  if (!accessToken) {
+    return { defaults: {} };
+  }
+
+  try {
+    const profile = await onshapeFetchJson<OnshapeUserProfile>(
+      "/users/sessioninfo",
+      accessToken,
+    );
+    const userProfile = profile.user ?? profile;
+    return {
+      defaults: {
+        submitter: onshapeUserDisplayName(userProfile),
+      },
+    };
+  } catch {
+    return { defaults: {} };
+  }
 }
 
 export function onshapeContextFromParams(
@@ -466,6 +522,47 @@ function partNumberHeaderKeys(bom: unknown): string[] {
   return Array.from(keys);
 }
 
+function materialHeaderKeys(bom: unknown): string[] {
+  const table = bomTableFromResponse(bom);
+  const keys = new Set([
+    "material",
+    "Material",
+    "materialName",
+    "Material Name",
+    "rawMaterial",
+    "Raw material",
+    "Raw Material",
+  ]);
+  const headers = Array.isArray(table?.headers) ? table.headers : [];
+
+  for (const header of headers) {
+    const record = asRecord(header);
+    if (!record) {
+      continue;
+    }
+
+    const labels = [
+      normalizeString(record.propertyName),
+      normalizeString(record.name),
+      normalizeString(record.propertyId),
+    ].filter(Boolean);
+
+    if (
+      !labels.some((label) =>
+        /^(raw\s*)?material(\s*name)?$/i.test(label.trim()),
+      )
+    ) {
+      continue;
+    }
+
+    for (const label of labels) {
+      keys.add(label);
+    }
+  }
+
+  return Array.from(keys);
+}
+
 function valueFromRecordKeys(
   record: Record<string, unknown>,
   keys: string[],
@@ -534,6 +631,13 @@ function partNumberFromRow(
   headerKeys: string[],
 ): string {
   return valueFromRecordKeys(row, headerKeys) || partNumberFromNode(row);
+}
+
+function materialFromRow(
+  row: Record<string, unknown>,
+  headerKeys: string[],
+): string {
+  return valueFromRecordKeys(row, headerKeys);
 }
 
 function collectBomItemRows(
@@ -615,6 +719,43 @@ function findBomPartNumber(input: {
   return "";
 }
 
+function findBomMaterial(input: {
+  bom: unknown;
+  partId: string;
+  partName: string;
+}): string {
+  const rows = bomItemRows(input.bom);
+  const headerKeys = materialHeaderKeys(input.bom);
+
+  if (input.partId) {
+    for (const row of rows) {
+      if (!rowMatchesPartId(row, input.partId)) {
+        continue;
+      }
+
+      const material = materialFromRow(row, headerKeys);
+      if (material) {
+        return material;
+      }
+    }
+  }
+
+  if (input.partName) {
+    for (const row of rows) {
+      if (!rowMatchesPartName(row, input.partName)) {
+        continue;
+      }
+
+      const material = materialFromRow(row, headerKeys);
+      if (material) {
+        return material;
+      }
+    }
+  }
+
+  return "";
+}
+
 async function fetchAssemblyElements(
   context: OnshapeContext,
   accessToken: string,
@@ -671,6 +812,45 @@ async function fetchBomPartNumber(input: {
       const partNumber = findBomPartNumber({ bom, partId, partName });
       if (partNumber) {
         return partNumber;
+      }
+    } catch {
+      continue;
+    }
+  }
+
+  return "";
+}
+
+async function fetchBomMaterial(input: {
+  accessToken: string;
+  context: OnshapeContext;
+  part: OnshapePart | null;
+  partName: string;
+}): Promise<string> {
+  const partId = input.context.partId || normalizeString(input.part?.partId);
+  const partName = input.partName || normalizeString(input.part?.name);
+  if (!partId && !partName) {
+    return "";
+  }
+
+  let assemblies: OnshapeElement[] = [];
+  try {
+    assemblies = await fetchAssemblyElements(input.context, input.accessToken);
+  } catch {
+    return "";
+  }
+
+  for (const assembly of assemblies) {
+    const assemblyElementId = normalizeString(assembly.id);
+    if (!assemblyElementId) {
+      continue;
+    }
+
+    try {
+      const bom = await fetchBom(input.accessToken, input.context, assemblyElementId);
+      const material = findBomMaterial({ bom, partId, partName });
+      if (material) {
+        return material;
       }
     } catch {
       continue;
@@ -1175,6 +1355,19 @@ export async function fetchOnshapePartMetadata(
 
       if (bomPartNumber) {
         defaults.partNumber = bomPartNumber;
+      }
+    }
+
+    if (!defaults.material) {
+      const bomMaterial = await fetchBomMaterial({
+        accessToken,
+        context,
+        part,
+        partName: defaults.partName ?? "",
+      });
+
+      if (bomMaterial) {
+        defaults.material = bomMaterial;
       }
     }
 
