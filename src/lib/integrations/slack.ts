@@ -215,6 +215,10 @@ function linksLabel(request: ManufacturingRequest) {
   return links.length > 0 ? links.join(" | ") : "No links";
 }
 
+function priorityLabel(request: ManufacturingRequest) {
+  return request.priority || "Normal";
+}
+
 export async function notifyNewSubmission(request: ManufacturingRequest) {
   const ownerMentions = subsystemOwnerMentions(request.subsystem);
   const ownerText =
@@ -255,6 +259,10 @@ export async function notifyNewSubmission(request: ManufacturingRequest) {
             {
               type: "mrkdwn",
               text: `*Machine*\n${request.machineType}`,
+            },
+            {
+              type: "mrkdwn",
+              text: `*Priority*\n${priorityLabel(request)}`,
             },
             {
               type: "mrkdwn",
@@ -321,7 +329,9 @@ export async function notifyStatusChange(input: {
           type: "section",
           text: {
             type: "mrkdwn",
-            text: `${statusText}\nChanged by: ${changedByText}\nNotify: manufacturing${
+            text: `${statusText}\nPriority: ${priorityLabel(
+              input.request,
+            )}\nChanged by: ${changedByText}\nNotify: manufacturing${
               ownerMentions.length > 0
                 ? `\nSubsystem owner: ${ownerMentions.join(" ")}`
                 : ""
@@ -378,7 +388,7 @@ export async function notify3DPrintSubmission(request: ManufacturingRequest) {
             },
             {
               type: "mrkdwn",
-              text: `*Priority*\n${request.priority || "Normal"}`,
+              text: `*Priority*\n${priorityLabel(request)}`,
             },
             {
               type: "mrkdwn",
