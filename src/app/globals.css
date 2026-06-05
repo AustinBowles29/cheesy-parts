@@ -176,10 +176,10 @@ textarea {
 .queue-table-scroll {
   max-height: min(62dvh, 44rem);
   max-width: 100%;
-  overflow-x: hidden;
+  overflow-x: auto;
   overflow-y: auto;
   overscroll-behavior: contain;
-  touch-action: pan-y;
+  touch-action: pan-x pan-y;
   -webkit-overflow-scrolling: touch;
 }
 

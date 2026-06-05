@@ -778,7 +778,7 @@ export function QueueDashboard({
 
         <section className="max-w-full overflow-hidden rounded-lg border border-[#d8e2f0] bg-white">
           <div className="scrollable queue-table-scroll">
-            <table className="queue-table w-full border-collapse text-xs sm:text-sm">
+            <table className="queue-table w-full min-w-[1280px] border-collapse text-xs sm:text-sm">
               <colgroup>
                 <col className="w-[16%]" />
                 <col className="w-[9%]" />
