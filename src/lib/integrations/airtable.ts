@@ -568,12 +568,24 @@ function writableFieldByName(
   table: AirtableTableSchema | null | undefined,
   names: string[],
 ) {
-  const normalizedNames = names.map((name) => name.toLowerCase());
-  return table?.fields.find(
-    (field) =>
-      normalizedNames.includes(field.name.toLowerCase()) &&
-      !readonlyFieldTypes.has(field.type),
-  );
+  if (!table) {
+    return undefined;
+  }
+
+  for (const name of names) {
+    const normalizedName = name.toLowerCase();
+    const field = table.fields.find(
+      (item) =>
+        item.name.toLowerCase() === normalizedName &&
+        !readonlyFieldTypes.has(item.type),
+    );
+
+    if (field) {
+      return field;
+    }
+  }
+
+  return undefined;
 }
 
 function choiceNames(field: AirtableFieldSchema | undefined) {
@@ -780,7 +792,10 @@ function requestToFields(
       Submitter: request.submitter,
       "Submitter Slack ID": request.submitterSlackId,
       "Time Created": request.submittedAt,
-      Drawing: attachmentFields(request.attachments, "drawing"),
+      "Part Drawing / File (Check with Designed)": attachmentFields(
+        request.attachments,
+        "drawing",
+      ),
       DXF: attachmentFields(request.attachments, "dxf"),
       "Other files": attachmentFields(request.attachments, "other"),
       "Manufacturing Notes": request.manufacturingNotes,
@@ -877,7 +892,7 @@ function requestToFields(
   addMappedField(
     fields,
     table,
-    ["Drawing", "Drawing PDF"],
+    ["Part Drawing / File (Check with Designed)", "Drawing", "Drawing PDF"],
     attachmentFields(request.attachments, "drawing"),
   );
   addMappedField(fields, table, ["Print Material"], request.printMaterial);
