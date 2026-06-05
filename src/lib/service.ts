@@ -5,6 +5,7 @@ import {
   isAirtableConfigured,
   listAirtableRequests,
   resolveAirtableTableTarget,
+  statusForAirtableTarget,
   updateAirtableStatus,
 } from "./integrations/airtable";
 import {
@@ -262,16 +263,31 @@ export async function changeManufacturingStatus(input: {
     };
   }
 
+  const actualNewStatus = coerceStatus(updated.status);
+  if (actualNewStatus !== newStatus) {
+    updated = {
+      ...updated,
+      auditHistory: updated.auditHistory.map((entry, index) =>
+        index === updated.auditHistory.length - 1 &&
+        entry.action === "status_changed"
+          ? { ...entry, toStatus: actualNewStatus }
+          : entry,
+      ),
+    };
+  }
+
   await upsertLocalRequest(updated);
-  await runNotification(warnings, () =>
-    notifyStatusChange({
-      request: updated,
-      oldStatus,
-      newStatus,
-      changedBy,
-      changedBySlackId: changedBySlackId || undefined,
-    }),
-  );
+  if (oldStatus !== actualNewStatus) {
+    await runNotification(warnings, () =>
+      notifyStatusChange({
+        request: updated,
+        oldStatus,
+        newStatus: actualNewStatus,
+        changedBy,
+        changedBySlackId: changedBySlackId || undefined,
+      }),
+    );
+  }
 
   return { data: updated, warnings };
 }
@@ -295,9 +311,12 @@ export async function syncAirtableStatusChange(input: {
   const newStatus = input.newStatus
     ? coerceStatus(input.newStatus)
     : latest.status;
+  const previousStatus = previous?.status
+    ? await statusForAirtableTarget(previous.status, input)
+    : undefined;
   const oldStatus = input.oldStatus
     ? coerceStatus(input.oldStatus)
-    : previous?.status;
+    : previousStatus;
   const shouldNotify = oldStatus
     ? oldStatus !== newStatus
     : Boolean(input.newStatus);

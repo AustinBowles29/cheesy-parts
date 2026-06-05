@@ -651,6 +651,17 @@ function statusChoiceAliases(status: ManufacturingRequest["status"]) {
   return [];
 }
 
+function statusForTableChoice(
+  status: ManufacturingRequest["status"],
+  table?: AirtableTableSchema | null,
+) {
+  const field = writableFieldByName(table, ["Status"]);
+  const mappedValue = fieldValue(field, status, statusChoiceAliases(status));
+  const statusValue = Array.isArray(mappedValue) ? mappedValue[0] : mappedValue;
+
+  return statusValue ? coerceStatus(statusValue) : status;
+}
+
 function machineChoiceAliases(machineType: ManufacturingRequest["machineType"]) {
   if (machineType === "Mill") {
     return ["CNC Mill"];
@@ -1136,6 +1147,7 @@ export async function createAirtableRecord(request: ManufacturingRequest) {
   );
 
   const record = response.records[0];
+  const savedRequest = mapAirtableRecord(record, target);
   return {
     ...request,
     id: record.id,
@@ -1143,7 +1155,18 @@ export async function createAirtableRecord(request: ManufacturingRequest) {
     airtableUrl: airtableRecordUrl(record.id, target),
     airtableTableId: target?.airtableTableId,
     airtableTableName: target?.airtableTableName,
+    status: savedRequest.status,
   };
+}
+
+export async function statusForAirtableTarget(
+  status: ManufacturingRequest["status"],
+  tableHint: AirtableTableHint = {},
+) {
+  const resolvedTarget = resolveAirtableTableTarget(tableHint);
+  const { table } = await tableSchemaForTarget(resolvedTarget);
+
+  return statusForTableChoice(status, table);
 }
 
 export async function listAirtableRequests() {
