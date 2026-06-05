@@ -333,16 +333,16 @@ export function OnshapeSubmissionPanel({
         </header>
 
         <section className="rounded-lg border border-[#b7cef2] bg-[#eef5ff] p-4">
-          <div className="grid gap-3 md:grid-cols-5">
-            <div className="md:col-span-2">
+          <div className="grid min-w-0 gap-3 sm:grid-cols-2 xl:grid-cols-[minmax(0,2fr)_repeat(3,minmax(0,1fr))]">
+            <div className="min-w-0 sm:col-span-2 xl:col-span-1">
               <div className="flex items-center gap-2 text-sm font-semibold text-[#0b3d91]">
                 <Boxes size={17} aria-hidden="true" />
                 Selected part
               </div>
-              <div className="mt-2 text-lg font-semibold">
+              <div className="mt-2 min-w-0 break-words text-lg font-semibold leading-snug">
                 {partName || "No part selected"}
               </div>
-              <div className="text-sm text-[#586158]">
+              <div className="min-w-0 break-words text-sm text-[#586158]">
                 {partNumber || "No part number"}
               </div>
             </div>
@@ -351,7 +351,7 @@ export function OnshapeSubmissionPanel({
               label="Branch/version"
               value={defaults.branchVersionReference || "-"}
             />
-            <div>
+            <div className="min-w-0">
               <div className="text-xs font-semibold text-[#586158]">
                 Assembly/version
               </div>
@@ -360,10 +360,11 @@ export function OnshapeSubmissionPanel({
                   href={defaults.assemblyUrl}
                   target="_blank"
                   rel="noreferrer"
-                  className="mt-1 inline-flex items-center gap-1 text-sm font-semibold text-[#0b3d91] hover:underline"
+                  className="mt-1 inline-flex max-w-full min-w-0 items-center gap-1 text-sm font-semibold text-[#0b3d91] hover:underline"
+                  title={defaults.assemblyUrl}
                 >
-                  Open assembly
-                  <LinkIcon size={14} aria-hidden="true" />
+                  <span className="min-w-0 truncate">Open assembly</span>
+                  <LinkIcon size={14} aria-hidden="true" className="shrink-0" />
                 </a>
               ) : (
                 <div className="mt-1 text-sm">-</div>
@@ -726,7 +727,10 @@ export function OnshapeSubmissionPanel({
                 <span>Branch/version reference</span>
                 <input
                   name="branchVersionReference"
-                  defaultValue={defaults.branchVersionReference}
+                  value={defaults.branchVersionReference ?? ""}
+                  readOnly
+                  aria-readonly="true"
+                  className="cursor-default bg-[#f7faff] text-[#5c6f8a]"
                 />
               </label>
             </div>
@@ -827,9 +831,11 @@ export function OnshapeSubmissionPanel({
 
 function InfoItem({ label, value }: { label: string; value: string }) {
   return (
-    <div>
+    <div className="min-w-0">
       <div className="text-xs font-semibold text-[#586158]">{label}</div>
-      <div className="mt-1 text-sm">{value}</div>
+      <div className="mt-1 min-w-0 break-all text-sm leading-snug" title={value}>
+        {value}
+      </div>
     </div>
   );
 }

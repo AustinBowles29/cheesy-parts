@@ -86,6 +86,13 @@ function buildOnshapeUrl(
   return url.toString();
 }
 
+function buildElementUrlFromParam(
+  params: Record<string, string | string[] | undefined>,
+  elementId?: string,
+) {
+  return elementId ? buildOnshapeUrl(params, elementId) : "";
+}
+
 function defaultsFromSearchParams(
   params: Record<string, string | string[] | undefined>,
 ): SubmissionInput {
@@ -99,18 +106,16 @@ function defaultsFromSearchParams(
   const thickness = firstParam(params.thickness) ?? "";
   const onshapePartUrl =
     firstParam(params.onshapePartUrl) ?? buildOnshapeUrl(params);
+  const drawingElementId =
+    firstParam(params.drawingElementId) ?? firstParam(params.deid);
+  const assemblyElementId =
+    firstParam(params.assemblyElementId) ?? firstParam(params.aeid);
   const onshapeDrawingUrl =
     firstParam(params.onshapeDrawingUrl) ??
-    buildOnshapeUrl(
-      params,
-      firstParam(params.drawingElementId) ?? firstParam(params.deid),
-    );
+    buildElementUrlFromParam(params, drawingElementId);
   const assemblyUrl =
     firstParam(params.assemblyUrl) ??
-    buildOnshapeUrl(
-      params,
-      firstParam(params.assemblyElementId) ?? firstParam(params.aeid),
-    );
+    buildElementUrlFromParam(params, assemblyElementId);
 
   return {
     airtableTableId:
