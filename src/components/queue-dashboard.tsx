@@ -9,6 +9,7 @@ import {
   Filter,
   RefreshCw,
   Search,
+  Trash2,
 } from "lucide-react";
 import Link from "next/link";
 import {
@@ -19,7 +20,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { CATEGORIES, MACHINE_TYPES, STATUSES } from "@/lib/constants";
+import { MACHINE_TYPES, STATUSES } from "@/lib/constants";
 import { coerceStatus } from "@/lib/manufacturing";
 import type {
   ManufacturingRequest,
@@ -43,7 +44,6 @@ type Filters = {
   subsystem: string;
   machineType: string;
   status: string;
-  category: string;
   submitter: string;
   material: string;
   search: string;
@@ -53,7 +53,6 @@ const emptyFilters: Filters = {
   subsystem: "",
   machineType: "",
   status: "",
-  category: "",
   submitter: "",
   material: "",
   search: "",
@@ -238,6 +237,7 @@ export function QueueDashboard({
   const [spareQuantities, setSpareQuantities] = useState<Record<string, string>>(
     {},
   );
+  const [deletingIds, setDeletingIds] = useState<Set<string>>(new Set());
   const { toasts, addToast, dismissToast } = useToasts(
     initialQueueToasts(initialError),
   );
@@ -294,7 +294,6 @@ export function QueueDashboard({
         (!filters.subsystem || request.subsystem === filters.subsystem) &&
         (!filters.machineType || request.machineType === filters.machineType) &&
         (!filters.status || statusMatches(request.status, filters.status)) &&
-        (!filters.category || request.category === filters.category) &&
         (!filters.submitter || request.submitter === filters.submitter) &&
         (!filters.material || request.material === filters.material) &&
         (!filters.search ||
@@ -550,6 +549,71 @@ export function QueueDashboard({
     void refreshQueue({ silent: true });
   }
 
+  async function deleteRequest(request: ManufacturingRequest) {
+    const label = request.partNumber || request.partName;
+    if (
+      !window.confirm(
+        `Delete ${label} from the queue and Airtable? This cannot be undone from this app.`,
+      )
+    ) {
+      return;
+    }
+
+    mutationCountRef.current += 1;
+    setDeletingIds((current) => new Set(current).add(request.id));
+    const previous = requests;
+    setRequests((current) => current.filter((item) => item.id !== request.id));
+
+    try {
+      const response = await fetch(
+        `/api/requests/${encodeURIComponent(request.id)}`,
+        {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            airtableTableId: request.airtableTableId,
+            airtableTableName: request.airtableTableName,
+          }),
+        },
+      );
+      const body = await response.json();
+
+      if (!response.ok) {
+        setRequests(previous);
+        addToast({
+          variant: "danger",
+          title: "Delete failed",
+          message: body.error ?? "Could not delete request.",
+        });
+        return;
+      }
+
+      setLastSyncedAt(new Date().toISOString());
+      addToast({
+        variant: "success",
+        title: "Part deleted",
+        message: `${label} was removed from the queue and Airtable.`,
+      });
+    } catch (error) {
+      setRequests(previous);
+      addToast({
+        variant: "danger",
+        title: "Delete failed",
+        message:
+          error instanceof Error ? error.message : "Could not delete request.",
+      });
+    } finally {
+      mutationCountRef.current = Math.max(0, mutationCountRef.current - 1);
+      setDeletingIds((current) => {
+        const next = new Set(current);
+        next.delete(request.id);
+        return next;
+      });
+    }
+
+    void refreshQueue({ silent: true });
+  }
+
   return (
     <main className="min-h-screen bg-[#f7faff] text-[#141515]">
       <ToastViewport toasts={toasts} onDismiss={dismissToast} />
@@ -687,14 +751,6 @@ export function QueueDashboard({
               }
             />
             <FilterSelect
-              label="Category"
-              value={filters.category}
-              options={CATEGORIES}
-              onChange={(value) =>
-                setFilters((current) => ({ ...current, category: value }))
-              }
-            />
-            <FilterSelect
               label="Submitter"
               value={filters.submitter}
               options={options.submitter}
@@ -732,7 +788,7 @@ export function QueueDashboard({
                   <th className="px-3 py-3">Material</th>
                   <th className="px-3 py-3">Machine</th>
                   <th className="px-3 py-3">Status</th>
-                  <th className="px-3 py-3">Category</th>
+                  <th className="px-3 py-3">Table</th>
                   <th className="px-3 py-3">Spares</th>
                   <th className="px-3 py-3">Links</th>
                 </tr>
@@ -787,15 +843,10 @@ export function QueueDashboard({
                         ))}
                       </select>
                     </td>
-                    <td className="px-3 py-3">
-                      <span className="rounded-full bg-[#e7edf5] px-2 py-1 text-xs font-semibold text-[#254668]">
-                        {request.category}
-                      </span>
-                      {request.airtableTableName && (
-                        <div className="mt-2 max-w-36 text-xs text-[#5c6f8a]">
-                          {request.airtableTableName}
-                        </div>
-                      )}
+                    <td className="px-3 py-3 text-xs text-[#5c6f8a]">
+                      {request.airtableTableName ||
+                        request.airtableTableId ||
+                        "-"}
                     </td>
                     <td className="px-3 py-3">
                       <div className="flex items-center gap-2">
@@ -846,6 +897,16 @@ export function QueueDashboard({
                           title="Open Airtable record"
                           icon={<Database size={16} aria-hidden="true" />}
                         />
+                        <button
+                          type="button"
+                          title="Delete part"
+                          aria-label={`Delete ${request.partNumber || request.partName}`}
+                          onClick={() => deleteRequest(request)}
+                          disabled={deletingIds.has(request.id)}
+                          className="icon-action inline-flex h-9 w-9 items-center justify-center rounded-md border border-[#b8c9e3] text-[#5c6f8a] hover:border-[#dc2626] hover:bg-[#fef2f2] hover:text-[#b91c1c] disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          <Trash2 size={16} aria-hidden="true" />
+                        </button>
                       </div>
                     </td>
                     </tr>

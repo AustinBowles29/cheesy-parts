@@ -10,7 +10,6 @@ import {
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  CATEGORIES,
   FINISHES,
   MACHINE_TYPES,
   PRIORITIES,
@@ -43,13 +42,16 @@ const requiredFields = [
   { name: "machineType", label: "Machine type" },
   { name: "submitter", label: "Owner" },
   { name: "airtableTableId", label: "Tracking table" },
-  { name: "category", label: "Category" },
   { name: "finish", label: "Post-process" },
   { name: "priority", label: "Priority" },
 ] as const;
 
 function toastForWarning(warning: string) {
-  if (warning.toLowerCase().includes("slack")) {
+  const normalizedWarning = warning.toLowerCase();
+  if (
+    normalizedWarning.includes("slack") &&
+    normalizedWarning.includes("not configured")
+  ) {
     return {
       variant: "info" as const,
       title: "Slack not configured",
@@ -58,7 +60,15 @@ function toastForWarning(warning: string) {
     };
   }
 
-  if (warning.toLowerCase().includes("onshape")) {
+  if (normalizedWarning.includes("slack")) {
+    return {
+      variant: "warning" as const,
+      title: "Slack notification failed",
+      message: warning,
+    };
+  }
+
+  if (normalizedWarning.includes("onshape")) {
     return {
       variant: "info" as const,
       title: "Onshape metadata",
@@ -282,12 +292,22 @@ export function OnshapeSubmissionPanel({
 
   function showIntegrationWarnings(warnings: string[] = []) {
     for (const warning of warnings) {
-      if (warning.toLowerCase().includes("slack")) {
+      const normalizedWarning = warning.toLowerCase();
+      if (
+        normalizedWarning.includes("slack") &&
+        normalizedWarning.includes("not configured")
+      ) {
         addToast({
           variant: "info",
           title: "Slack not configured",
           message:
             "Submissions will still be saved, but Slack notifications will not be sent.",
+        });
+      } else if (normalizedWarning.includes("slack")) {
+        addToast({
+          variant: "warning",
+          title: "Slack notification failed",
+          message: warning,
         });
       } else {
         addToast({
@@ -654,20 +674,6 @@ export function OnshapeSubmissionPanel({
                   required
                   {...invalidProps("submitter")}
                 />
-              </label>
-              <label className="field">
-                <span>Category</span>
-                <select
-                  name="category"
-                  defaultValue={defaults.category ?? "Robot"}
-                  onChange={() => clearInvalid("category")}
-                  required
-                  {...invalidProps("category")}
-                >
-                  {CATEGORIES.map((item) => (
-                    <option key={item}>{item}</option>
-                  ))}
-                </select>
               </label>
               {airtableTables.length > 1 && (
                 <label className="field">

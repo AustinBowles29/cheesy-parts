@@ -1,5 +1,6 @@
 import {
   createAirtableRecord,
+  deleteAirtableRecord,
   getAirtableRequest,
   isAirtableConfigured,
   listAirtableRequests,
@@ -25,6 +26,7 @@ import {
   normalizeString,
 } from "./manufacturing";
 import {
+  deleteLocalRequest,
   findLocalRequest,
   readLocalRequests,
   upsertLocalRequest,
@@ -336,6 +338,29 @@ export async function syncAirtableStatusChange(input: {
   }
 
   return { data: updated, warnings, notified: shouldNotify };
+}
+
+export async function deleteManufacturingRequest(input: {
+  id: string;
+  airtableTableId?: string;
+  airtableTableName?: string;
+}): Promise<ServiceResult<ManufacturingRequest>> {
+  const existing = await findManufacturingRequest(input.id, input);
+
+  if (!existing) {
+    throw new ValidationError("Manufacturing request not found.");
+  }
+
+  if (isAirtableConfigured()) {
+    await deleteAirtableRecord(existing.airtableId ?? existing.id, {
+      airtableTableId: existing.airtableTableId ?? input.airtableTableId,
+      airtableTableName: existing.airtableTableName ?? input.airtableTableName,
+      category: existing.category,
+    });
+  }
+
+  await deleteLocalRequest(existing.id);
+  return { data: existing, warnings: [] };
 }
 
 export async function createSpareRequest(input: {

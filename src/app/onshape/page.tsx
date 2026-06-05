@@ -151,7 +151,6 @@ function defaultsFromSearchParams(
           firstParam(params.versionId) ??
           firstParam(params.workspaceOrVersionId),
       ),
-    category: firstParam(params.category) ?? "Robot",
     finish: firstParam(params.finish) ?? "Raw",
     submitter:
       firstParam(params.submitter) ??

@@ -89,6 +89,14 @@ export async function findLocalRequest(id: string) {
   );
 }
 
+export async function deleteLocalRequest(id: string) {
+  const requests = await readLocalRequests();
+  const nextRequests = requests.filter(
+    (request) => request.id !== id && request.airtableId !== id,
+  );
+  await writeLocalRequests(nextRequests);
+}
+
 async function readCursorStore(): Promise<Record<string, string>> {
   await fs.mkdir(dataDir, { recursive: true });
 

@@ -36,7 +36,8 @@ function manufacturingChannelId() {
   return (
     process.env.SLACK_MANUFACTURING_CHANNEL_ID ??
     process.env.SLACK_SUBMISSION_CHANNEL_ID ??
-    process.env.SLACK_CHANNEL_ID
+    process.env.SLACK_CHANNEL_ID ??
+    process.env.SLACK_STATUS_CHANNEL_ID
   );
 }
 

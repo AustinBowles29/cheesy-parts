@@ -3,6 +3,7 @@ import {
   coerceFinish,
   coerceMachineType,
   coerceStatus,
+  is3DPrint,
   normalizeQuantity,
   normalizeString,
 } from "../manufacturing";
@@ -738,6 +739,23 @@ function addMappedField(
   }
 }
 
+function airtableDescription(request: ManufacturingRequest) {
+  const lines = [request.partName];
+
+  if (is3DPrint(request.machineType)) {
+    lines.push(
+      request.material ? `Material: ${request.material}` : "",
+      request.printMaterial ? `Print material: ${request.printMaterial}` : "",
+      request.printColor ? `Color: ${request.printColor}` : "",
+      request.infill ? `Infill: ${request.infill}` : "",
+      request.layerHeight ? `Layer height: ${request.layerHeight}` : "",
+      request.printerNotes ? `Printer notes: ${request.printerNotes}` : "",
+    );
+  }
+
+  return lines.filter(Boolean).join("\n");
+}
+
 function requestToFields(
   request: ManufacturingRequest,
   table?: AirtableTableSchema | null,
@@ -745,11 +763,11 @@ function requestToFields(
   if (!table) {
     return {
       "Part Name": request.partName,
+      Description: airtableDescription(request),
       "Part Number": request.partNumber,
       Notes: request.notes || undefined,
       Quantity: request.quantity,
       Subsystem: request.subsystem,
-      Category: request.category,
       Material: request.material,
       Thickness: request.thickness,
       Finish: request.finish,
@@ -790,9 +808,10 @@ function requestToFields(
   addMappedField(
     fields,
     table,
-    ["Part Name", "Name", "name", "Description"],
+    ["Part Name", "Name", "name"],
     request.partName,
   );
+  addMappedField(fields, table, ["Description"], airtableDescription(request));
   addMappedField(
     fields,
     table,
@@ -814,7 +833,6 @@ function requestToFields(
     request.quantity,
   );
   addMappedField(fields, table, ["Subsystem", "Subsystems"], request.subsystem);
-  addMappedField(fields, table, ["Category"], request.category);
   addMappedField(fields, table, ["Raw material", "Material"], request.material);
   addMappedField(fields, table, ["Thickness"], request.thickness);
   addMappedField(
@@ -1180,4 +1198,17 @@ export async function updateAirtableStatus(
   );
 
   return mapAirtableRecord(record, target);
+}
+
+export async function deleteAirtableRecord(
+  recordId: string,
+  tableHint: AirtableTableHint = {},
+) {
+  const target = resolveAirtableTableTarget(tableHint);
+  await airtableFetch<{ deleted?: boolean; id?: string }>(
+    `${tableUrl(target)}/${recordId}`,
+    {
+      method: "DELETE",
+    },
+  );
 }
