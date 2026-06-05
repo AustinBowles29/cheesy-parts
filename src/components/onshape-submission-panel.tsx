@@ -8,7 +8,7 @@ import {
   Send,
 } from "lucide-react";
 import Link from "next/link";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   CATEGORIES,
   FINISHES,
@@ -119,18 +119,32 @@ export function OnshapeSubmissionPanel({
   onshapeAuthUrl,
   onshapeWarning,
 }: OnshapeSubmissionPanelProps) {
-  const airtableTables = fieldOptions.airtableTables ?? [];
-  const machineOptions = uniqueStrings([
-    ...fieldOptions.machineTypes,
-    ...MACHINE_TYPES,
-  ]);
-  const postProcessOptions = uniqueStrings(
-    fieldOptions.postProcesses.length > 0 ? fieldOptions.postProcesses : FINISHES,
+  const airtableTables = useMemo(
+    () => fieldOptions.airtableTables ?? [],
+    [fieldOptions.airtableTables],
+  );
+  const machineOptions = useMemo(
+    () =>
+      uniqueStrings([
+        ...fieldOptions.machineTypes,
+        ...MACHINE_TYPES,
+      ]),
+    [fieldOptions.machineTypes],
+  );
+  const postProcessOptions = useMemo(
+    () =>
+      uniqueStrings(
+        fieldOptions.postProcesses.length > 0
+          ? fieldOptions.postProcesses
+          : FINISHES,
+      ),
+    [fieldOptions.postProcesses],
   );
   const defaultFinish =
     dropdownInitialValue(defaults.finish, postProcessOptions) ||
     postProcessOptions[0] ||
     "Raw";
+  const dirtyFieldsRef = useRef<Set<string>>(new Set());
   const [submitter, setSubmitter] = useState(defaults.submitter ?? "");
   const [selectedAirtableTableId, setSelectedAirtableTableId] = useState(
     () => initialAirtableTableValue(defaults, airtableTables),
@@ -138,8 +152,14 @@ export function OnshapeSubmissionPanel({
   const formRef = useRef<HTMLFormElement>(null);
   const [partName, setPartName] = useState(defaults.partName ?? "");
   const [partNumber, setPartNumber] = useState(defaults.partNumber ?? "");
+  const [notes, setNotes] = useState(
+    defaults.notes ?? defaults.description ?? "",
+  );
   const [material, setMaterial] = useState(defaults.material ?? "");
   const [thickness, setThickness] = useState(defaults.thickness ?? "");
+  const [quantity, setQuantity] = useState(
+    String(defaults.quantity ?? 1),
+  );
   const [subsystem, setSubsystem] = useState(() =>
     dropdownInitialValue(defaults.subsystem, fieldOptions.subsystems),
   );
@@ -150,6 +170,13 @@ export function OnshapeSubmissionPanel({
   const [machineOverride, setMachineOverride] = useState(() =>
     dropdownInitialValue(defaults.machineType, machineOptions),
   );
+  const [onshapePartUrl, setOnshapePartUrl] = useState(
+    defaults.onshapePartUrl ?? "",
+  );
+  const [onshapeDrawingUrl, setOnshapeDrawingUrl] = useState(
+    defaults.onshapeDrawingUrl ?? "",
+  );
+  const [assemblyUrl, setAssemblyUrl] = useState(defaults.assemblyUrl ?? "");
   const [submitState, setSubmitState] = useState<SubmitState>({
     status: "idle",
   });
@@ -160,6 +187,67 @@ export function OnshapeSubmissionPanel({
       fieldOptions.warning,
     ),
   );
+
+  useEffect(() => {
+    const updatePristineField = (
+      name: string,
+      nextValue: string,
+      setValue: (value: string) => void,
+    ) => {
+      if (!dirtyFieldsRef.current.has(name)) {
+        setValue(nextValue);
+      }
+    };
+
+    updatePristineField("submitter", defaults.submitter ?? "", setSubmitter);
+    updatePristineField(
+      "airtableTableId",
+      initialAirtableTableValue(defaults, airtableTables),
+      setSelectedAirtableTableId,
+    );
+    updatePristineField("partName", defaults.partName ?? "", setPartName);
+    updatePristineField("partNumber", defaults.partNumber ?? "", setPartNumber);
+    updatePristineField(
+      "notes",
+      defaults.notes ?? defaults.description ?? "",
+      setNotes,
+    );
+    updatePristineField("material", defaults.material ?? "", setMaterial);
+    updatePristineField("thickness", defaults.thickness ?? "", setThickness);
+    updatePristineField("quantity", String(defaults.quantity ?? 1), setQuantity);
+    updatePristineField(
+      "subsystem",
+      dropdownInitialValue(defaults.subsystem, fieldOptions.subsystems),
+      setSubsystem,
+    );
+    updatePristineField(
+      "vendorName",
+      dropdownInitialValue(defaults.vendorName, fieldOptions.vendors),
+      setVendorName,
+    );
+    updatePristineField(
+      "machineType",
+      dropdownInitialValue(defaults.machineType, machineOptions),
+      setMachineOverride,
+    );
+    updatePristineField(
+      "onshapePartUrl",
+      defaults.onshapePartUrl ?? "",
+      setOnshapePartUrl,
+    );
+    updatePristineField(
+      "onshapeDrawingUrl",
+      defaults.onshapeDrawingUrl ?? "",
+      setOnshapeDrawingUrl,
+    );
+    updatePristineField("assemblyUrl", defaults.assemblyUrl ?? "", setAssemblyUrl);
+  }, [
+    airtableTables,
+    defaults,
+    fieldOptions.subsystems,
+    fieldOptions.vendors,
+    machineOptions,
+  ]);
 
   const inferredMachineType = useMemo(
     () => deriveMachineType({ material, thickness, partName, hasDrawing }),
@@ -186,6 +274,10 @@ export function OnshapeSubmissionPanel({
     return {
       "aria-invalid": invalidFields.has(name) ? true : undefined,
     };
+  }
+
+  function markDirty(name: string) {
+    dirtyFieldsRef.current.add(name);
   }
 
   function showIntegrationWarnings(warnings: string[] = []) {
@@ -415,6 +507,7 @@ export function OnshapeSubmissionPanel({
                   name="partName"
                   value={partName}
                   onChange={(event) => {
+                    markDirty("partName");
                     setPartName(event.target.value);
                     clearInvalid("partName");
                   }}
@@ -428,6 +521,7 @@ export function OnshapeSubmissionPanel({
                   name="partNumber"
                   value={partNumber}
                   onChange={(event) => {
+                    markDirty("partNumber");
                     setPartNumber(event.target.value);
                     clearInvalid("partNumber");
                   }}
@@ -439,7 +533,11 @@ export function OnshapeSubmissionPanel({
                 <span>Notes</span>
                 <textarea
                   name="notes"
-                  defaultValue={defaults.notes ?? defaults.description}
+                  value={notes}
+                  onChange={(event) => {
+                    markDirty("notes");
+                    setNotes(event.target.value);
+                  }}
                   rows={3}
                   placeholder="Short design or manufacturing context"
                 />
@@ -450,6 +548,7 @@ export function OnshapeSubmissionPanel({
                   name="material"
                   value={material}
                   onChange={(event) => {
+                    markDirty("material");
                     setMaterial(event.target.value);
                     clearInvalid("material");
                   }}
@@ -462,7 +561,10 @@ export function OnshapeSubmissionPanel({
                 <input
                   name="thickness"
                   value={thickness}
-                  onChange={(event) => setThickness(event.target.value)}
+                  onChange={(event) => {
+                    markDirty("thickness");
+                    setThickness(event.target.value);
+                  }}
                   placeholder="0.125 in"
                 />
               </label>
@@ -472,8 +574,12 @@ export function OnshapeSubmissionPanel({
                   name="quantity"
                   type="number"
                   min="1"
-                  defaultValue={defaults.quantity ?? 1}
-                  onChange={() => clearInvalid("quantity")}
+                  value={quantity}
+                  onChange={(event) => {
+                    markDirty("quantity");
+                    setQuantity(event.target.value);
+                    clearInvalid("quantity");
+                  }}
                   required
                   {...invalidProps("quantity")}
                 />
@@ -484,7 +590,10 @@ export function OnshapeSubmissionPanel({
                   <select
                     name="subsystem"
                     value={subsystem}
-                    onChange={(event) => setSubsystem(event.target.value)}
+                    onChange={(event) => {
+                      markDirty("subsystem");
+                      setSubsystem(event.target.value);
+                    }}
                   >
                     <option value="">Select subsystem</option>
                     {fieldOptions.subsystems.map((option) => (
@@ -497,7 +606,10 @@ export function OnshapeSubmissionPanel({
                   <input
                     name="subsystem"
                     value={subsystem}
-                    onChange={(event) => setSubsystem(event.target.value)}
+                    onChange={(event) => {
+                      markDirty("subsystem");
+                      setSubsystem(event.target.value);
+                    }}
                   />
                 )}
               </label>
@@ -507,6 +619,7 @@ export function OnshapeSubmissionPanel({
                   name="machineType"
                   value={machineSelection}
                   onChange={(event) => {
+                    markDirty("machineType");
                     setMachineOverride(event.target.value);
                     clearInvalid("machineType");
                   }}
@@ -533,6 +646,7 @@ export function OnshapeSubmissionPanel({
                   name="submitter"
                   value={submitter}
                   onChange={(event) => {
+                    markDirty("submitter");
                     setSubmitter(event.target.value);
                     clearInvalid("submitter");
                   }}
@@ -562,6 +676,7 @@ export function OnshapeSubmissionPanel({
                     name="airtableTableId"
                     value={selectedAirtableTableId}
                     onChange={(event) => {
+                      markDirty("airtableTableId");
                       setSelectedAirtableTableId(event.target.value);
                       clearInvalid("airtableTableId");
                     }}
@@ -678,14 +793,22 @@ export function OnshapeSubmissionPanel({
                 <span>Onshape part URL</span>
                 <input
                   name="onshapePartUrl"
-                  defaultValue={defaults.onshapePartUrl}
+                  value={onshapePartUrl}
+                  onChange={(event) => {
+                    markDirty("onshapePartUrl");
+                    setOnshapePartUrl(event.target.value);
+                  }}
                 />
               </label>
               <label className="field">
                 <span>Onshape drawing URL</span>
                 <input
                   name="onshapeDrawingUrl"
-                  defaultValue={defaults.onshapeDrawingUrl}
+                  value={onshapeDrawingUrl}
+                  onChange={(event) => {
+                    markDirty("onshapeDrawingUrl");
+                    setOnshapeDrawingUrl(event.target.value);
+                  }}
                 />
                 {defaults.onshapeDrawingElementId && (
                   <input
@@ -720,7 +843,11 @@ export function OnshapeSubmissionPanel({
                 <span>Assembly URL</span>
                 <input
                   name="assemblyUrl"
-                  defaultValue={defaults.assemblyUrl}
+                  value={assemblyUrl}
+                  onChange={(event) => {
+                    markDirty("assemblyUrl");
+                    setAssemblyUrl(event.target.value);
+                  }}
                 />
               </label>
               <label className="field">
@@ -770,7 +897,10 @@ export function OnshapeSubmissionPanel({
                   <select
                     name="vendorName"
                     value={vendorName}
-                    onChange={(event) => setVendorName(event.target.value)}
+                    onChange={(event) => {
+                      markDirty("vendorName");
+                      setVendorName(event.target.value);
+                    }}
                   >
                     <option value="">Select vendor</option>
                     {fieldOptions.vendors.map((option) => (
@@ -783,7 +913,10 @@ export function OnshapeSubmissionPanel({
                   <input
                     name="vendorName"
                     value={vendorName}
-                    onChange={(event) => setVendorName(event.target.value)}
+                    onChange={(event) => {
+                      markDirty("vendorName");
+                      setVendorName(event.target.value);
+                    }}
                   />
                 )}
               </label>
