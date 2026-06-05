@@ -227,6 +227,15 @@ function configuredSubmissionTableTargets() {
     return tableTargetsFromValues(explicitSubmissionValues);
   }
 
+  const explicitQueueValues = [
+    ...splitEnvList(process.env.AIRTABLE_QUEUE_TABLES),
+    ...splitEnvList(process.env.AIRTABLE_QUEUE_TABLE_NAMES),
+  ];
+
+  if (explicitQueueValues.length > 0) {
+    return tableTargetsFromValues(explicitQueueValues);
+  }
+
   const explicitTableValues = [
     ...splitEnvList(process.env.AIRTABLE_TABLES),
     ...splitEnvList(process.env.AIRTABLE_TABLE_NAMES),
@@ -601,6 +610,19 @@ function choiceValue(
 }
 
 function statusChoiceAliases(status: ManufacturingRequest["status"]) {
+  if (status === "Needs CAM") {
+    return ["Need CAM", "Needs CAM", "Ready for MFG", "Ready for manufacture"];
+  }
+
+  if (status === "Needs Drawing") {
+    return [
+      "Need Drawing",
+      "Needs Drawing",
+      "Ready for MFG",
+      "Ready for manufacture",
+    ];
+  }
+
   if (status === "Ready for Manufacture") {
     return ["Ready for MFG", "Ready for manufacture", "Ready for manufacturing"];
   }

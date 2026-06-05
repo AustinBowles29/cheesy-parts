@@ -92,6 +92,27 @@ function uniqueStrings(values: readonly string[]) {
   return Array.from(new Set(values.filter(Boolean)));
 }
 
+function airtableTableOptionValue(
+  table: NonNullable<SubmissionFieldOptions["airtableTables"]>[number],
+) {
+  return table.id || table.name;
+}
+
+function initialAirtableTableValue(
+  defaults: SubmissionInput,
+  tables: NonNullable<SubmissionFieldOptions["airtableTables"]>,
+) {
+  const defaultTarget = defaults.airtableTableId || defaults.airtableTableName;
+  const matchingTable = tables.find(
+    (table) => table.id === defaultTarget || table.name === defaultTarget,
+  );
+
+  return (
+    (matchingTable ? airtableTableOptionValue(matchingTable) : "") ||
+    (tables[0] ? airtableTableOptionValue(tables[0]) : "")
+  );
+}
+
 export function OnshapeSubmissionPanel({
   defaults,
   fieldOptions,
@@ -110,11 +131,9 @@ export function OnshapeSubmissionPanel({
     dropdownInitialValue(defaults.finish, postProcessOptions) ||
     postProcessOptions[0] ||
     "Raw";
-  const defaultAirtableTableId =
-    defaults.airtableTableId ?? airtableTables[0]?.id ?? "";
   const [submitter, setSubmitter] = useState(defaults.submitter ?? "");
   const [selectedAirtableTableId, setSelectedAirtableTableId] = useState(
-    defaultAirtableTableId,
+    () => initialAirtableTableValue(defaults, airtableTables),
   );
   const formRef = useRef<HTMLFormElement>(null);
   const [partName, setPartName] = useState(defaults.partName ?? "");
@@ -199,9 +218,13 @@ export function OnshapeSubmissionPanel({
       }
 
       if (field.name === "airtableTableId") {
+        const formValue = formData.get("airtableTableId");
+        const selectedValue =
+          typeof formValue === "string" ? formValue : selectedAirtableTableId;
+
         return (
           airtableTables.length > 0 &&
-          selectedAirtableTableId.trim().length === 0
+          selectedValue.trim().length === 0
         );
       }
 
@@ -545,7 +568,10 @@ export function OnshapeSubmissionPanel({
                     {...invalidProps("airtableTableId")}
                   >
                     {airtableTables.map((table) => (
-                      <option key={table.id} value={table.id}>
+                      <option
+                        key={airtableTableOptionValue(table)}
+                        value={airtableTableOptionValue(table)}
+                      >
                         {table.name}
                       </option>
                     ))}
@@ -556,7 +582,7 @@ export function OnshapeSubmissionPanel({
                 <input
                   type="hidden"
                   name="airtableTableId"
-                  value={airtableTables[0].id}
+                  value={airtableTableOptionValue(airtableTables[0])}
                 />
               )}
               {airtableTables.length === 0 && defaults.airtableTableId && (

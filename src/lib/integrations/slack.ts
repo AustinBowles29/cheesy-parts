@@ -32,7 +32,11 @@ function printWebhookUrl() {
 }
 
 function manufacturingChannelId() {
-  return process.env.SLACK_MANUFACTURING_CHANNEL_ID;
+  return (
+    process.env.SLACK_MANUFACTURING_CHANNEL_ID ??
+    process.env.SLACK_SUBMISSION_CHANNEL_ID ??
+    process.env.SLACK_CHANNEL_ID
+  );
 }
 
 function statusChannelId() {
