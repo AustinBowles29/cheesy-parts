@@ -1,5 +1,6 @@
 import { coerceStatus, normalizeString } from "../manufacturing";
 import type { ManufacturingRequest, ManufacturingStatus } from "../types";
+import { getManufacturingSlackUsers } from "./slack-users";
 
 interface SlackPayload {
   text: string;
@@ -184,15 +185,41 @@ function optionalSlackLink(url: string | undefined, label: string) {
   return url ? `<${url}|${label}>` : "";
 }
 
-function submitterLabel(request: ManufacturingRequest) {
-  if (request.submitterSlackId) {
+function isLikelySlackUserId(value: string | undefined) {
+  return /^[UW][A-Z0-9]+$/i.test(normalizeString(value));
+}
+
+function normalizedPersonKey(value: string | undefined) {
+  return normalizeString(value).toLowerCase().replace(/\s+/g, " ").trim();
+}
+
+async function submitterLabel(request: ManufacturingRequest) {
+  if (isLikelySlackUserId(request.submitterSlackId)) {
     return `<@${request.submitterSlackId}>`;
+  }
+
+  const submitterKey = normalizedPersonKey(request.submitter);
+  if (submitterKey) {
+    const slackUsers = await getManufacturingSlackUsers();
+    const matchingUser = slackUsers.users.find((user) => {
+      const emailPrefix = user.email?.split("@")[0];
+      return [
+        user.displayName,
+        user.handle,
+        user.email,
+        emailPrefix,
+      ].some((value) => normalizedPersonKey(value) === submitterKey);
+    });
+
+    if (matchingUser && isLikelySlackUserId(matchingUser.slackUserId)) {
+      return `<@${matchingUser.slackUserId}>`;
+    }
   }
 
   return request.submitter || "Not specified";
 }
 
-function drawingLinkLabel(request: ManufacturingRequest) {
+function drawingPdfLinkLabel(request: ManufacturingRequest) {
   const drawingAttachment = request.attachments.find(
     (attachment) => attachment.kind === "drawing" && attachment.url,
   );
@@ -201,7 +228,7 @@ function drawingLinkLabel(request: ManufacturingRequest) {
     return slackLink(drawingAttachment.url, drawingAttachment.filename || "Drawing PDF");
   }
 
-  return optionalSlackLink(request.onshapeDrawingUrl, "Onshape drawing");
+  return "";
 }
 
 function linksLabel(request: ManufacturingRequest) {
@@ -209,7 +236,6 @@ function linksLabel(request: ManufacturingRequest) {
     optionalSlackLink(request.airtableUrl, "Airtable"),
     optionalSlackLink(request.onshapePartUrl, "Onshape part"),
     optionalSlackLink(request.assemblyUrl, "Assembly"),
-    drawingLinkLabel(request),
   ].filter(Boolean);
 
   return links.length > 0 ? links.join(" | ") : "No links";
@@ -223,8 +249,8 @@ export async function notifyNewSubmission(request: ManufacturingRequest) {
   const ownerMentions = subsystemOwnerMentions(request.subsystem);
   const ownerText =
     ownerMentions.length > 0 ? ownerMentions.join(" ") : "Not configured";
-  const submitterText = submitterLabel(request);
-  const drawingText = drawingLinkLabel(request) || "Not found";
+  const submitterText = await submitterLabel(request);
+  const drawingText = drawingPdfLinkLabel(request) || "No drawing PDF attached";
 
   return postSlack({
     webhookUrl: manufacturingWebhookUrl(),
@@ -344,7 +370,8 @@ export async function notifyStatusChange(input: {
 }
 
 export async function notify3DPrintSubmission(request: ManufacturingRequest) {
-  const drawingText = drawingLinkLabel(request) || "Not found";
+  const submitterText = await submitterLabel(request);
+  const drawingText = drawingPdfLinkLabel(request) || "No drawing PDF attached";
 
   return postSlack({
     webhookUrl: printWebhookUrl(),
@@ -376,7 +403,7 @@ export async function notify3DPrintSubmission(request: ManufacturingRequest) {
             },
             {
               type: "mrkdwn",
-              text: `*Owner*\n${submitterLabel(request)}`,
+              text: `*Owner*\n${submitterText}`,
             },
             {
               type: "mrkdwn",
