@@ -1,3 +1,4 @@
+import { coerceStatus, normalizeString } from "../manufacturing";
 import type { ManufacturingRequest, ManufacturingStatus } from "../types";
 
 interface SlackPayload {
@@ -45,6 +46,70 @@ function statusChannelId() {
 
 function printChannelId() {
   return process.env.SLACK_3DP_CHANNEL_ID ?? manufacturingChannelId();
+}
+
+function subsystemOwnerMapRaw() {
+  return (
+    process.env.SUBSYSTEM_OWNER_SLACK_IDS ??
+    process.env.SLACK_SUBSYSTEM_OWNER_IDS
+  );
+}
+
+function normalizedSubsystemKey(value: string) {
+  return normalizeString(value).toLowerCase();
+}
+
+function normalizeSlackUserId(value: unknown) {
+  return normalizeString(value)
+    .replace(/^<@/, "")
+    .replace(/>$/, "")
+    .replace(/^@/, "");
+}
+
+function normalizeOwnerIds(value: unknown) {
+  const values = Array.isArray(value)
+    ? value
+    : normalizeString(value)
+        .split(/[,\s]+/)
+        .filter(Boolean);
+
+  return values.map(normalizeSlackUserId).filter(Boolean);
+}
+
+function subsystemOwnerMap() {
+  const raw = subsystemOwnerMapRaw();
+  const ownerMap = new Map<string, string[]>();
+
+  if (!raw) {
+    return ownerMap;
+  }
+
+  try {
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    for (const [subsystem, ownerIds] of Object.entries(parsed)) {
+      const key = normalizedSubsystemKey(subsystem);
+      const ids = normalizeOwnerIds(ownerIds);
+      if (key && ids.length > 0) {
+        ownerMap.set(key, ids);
+      }
+    }
+  } catch {
+    for (const entry of raw.split(";")) {
+      const [subsystem, ownerIds] = entry.split(":");
+      const key = normalizedSubsystemKey(subsystem);
+      const ids = normalizeOwnerIds(ownerIds);
+      if (key && ids.length > 0) {
+        ownerMap.set(key, ids);
+      }
+    }
+  }
+
+  return ownerMap;
+}
+
+function subsystemOwnerMentions(subsystem: string) {
+  const ownerIds = subsystemOwnerMap().get(normalizedSubsystemKey(subsystem)) ?? [];
+  return ownerIds.map((ownerId) => `<@${ownerId}>`);
 }
 
 async function postSlackToWebhook(webhookUrl: string, payload: SlackPayload) {
@@ -115,11 +180,17 @@ function slackLink(url: string, label: string) {
 }
 
 export async function notifyNewSubmission(request: ManufacturingRequest) {
+  const ownerMentions = subsystemOwnerMentions(request.subsystem);
+  const ownerText =
+    ownerMentions.length > 0 ? ownerMentions.join(" ") : "Not configured";
+
   return postSlack({
     webhookUrl: manufacturingWebhookUrl(),
     channelId: manufacturingChannelId(),
     payload: {
-      text: `New manufacturing request: ${request.partName}`,
+      text: `New manufacturing request: ${request.partName}${
+        ownerMentions.length > 0 ? ` ${ownerMentions.join(" ")}` : ""
+      }`,
       blocks: [
         {
           type: "header",
@@ -153,6 +224,10 @@ export async function notifyNewSubmission(request: ManufacturingRequest) {
             },
             {
               type: "mrkdwn",
+              text: `*Subsystem owner*\n${ownerText}`,
+            },
+            {
+              type: "mrkdwn",
               text: `*Links*\n${slackLink(request.airtableUrl ?? "", "Airtable")} | ${slackLink(
                 request.onshapePartUrl,
                 "Onshape",
@@ -172,6 +247,10 @@ export async function notifyStatusChange(input: {
   changedBy: string;
   changedBySlackId?: string;
 }) {
+  const ownerMentions =
+    coerceStatus(input.newStatus) === "Manufacturing In Progress"
+      ? subsystemOwnerMentions(input.request.subsystem)
+      : [];
   const partLabel =
     input.request.partName ||
     input.request.partNumber ||
@@ -196,7 +275,13 @@ export async function notifyStatusChange(input: {
           type: "section",
           text: {
             type: "mrkdwn",
-            text: `${statusText}\nChanged by: ${input.changedBySlackId ? `<@${input.changedBySlackId}>` : input.changedBy}`,
+            text: `${statusText}\nChanged by: ${
+              input.changedBySlackId ? `<@${input.changedBySlackId}>` : input.changedBy
+            }${
+              ownerMentions.length > 0
+                ? `\nSubsystem owner: ${ownerMentions.join(" ")}`
+                : ""
+            }`,
           },
         },
       ],

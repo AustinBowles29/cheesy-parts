@@ -57,6 +57,9 @@ const statusAliases: Record<string, ManufacturingStatus> = {
   "needs post-process": "Ready for Anodize/Powdercoat",
   "ready for post-process": "Ready for Anodize/Powdercoat",
   "to post-process": "Ready for Anodize/Powdercoat",
+  "mfg in progress": "Manufacturing In Progress",
+  "manufacturing in progress": "Manufacturing In Progress",
+  "manufacturing in-progress": "Manufacturing In Progress",
 };
 
 const machineTypeAliases: Record<string, MachineType> = {

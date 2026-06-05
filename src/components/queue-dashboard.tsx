@@ -11,7 +11,14 @@ import {
   Search,
 } from "lucide-react";
 import Link from "next/link";
-import { type ReactNode, useMemo, useState, useTransition } from "react";
+import {
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { CATEGORIES, MACHINE_TYPES, STATUSES } from "@/lib/constants";
 import { coerceStatus } from "@/lib/manufacturing";
 import type {
@@ -28,6 +35,7 @@ interface QueueDashboardProps {
   initialOnshapeUser?: OnshapeUser;
   initialStatusOptions: string[];
   initialTableStatusOptions: Record<string, string[]>;
+  initialSyncedAt: string;
   initialError?: string;
 }
 
@@ -50,6 +58,8 @@ const emptyFilters: Filters = {
   material: "",
   search: "",
 };
+
+const queueAutoRefreshMs = 20_000;
 
 function uniqueOptions(
   requests: ManufacturingRequest[],
@@ -175,16 +185,35 @@ function initialQueueToasts(initialError?: string) {
   ];
 }
 
+function formatLastSynced(value: string | null) {
+  if (!value) {
+    return "Not synced yet";
+  }
+
+  return new Intl.DateTimeFormat(undefined, {
+    hour: "numeric",
+    minute: "2-digit",
+    second: "2-digit",
+  }).format(new Date(value));
+}
+
 export function QueueDashboard({
   initialRequests,
   initialManufacturingUsers,
   initialOnshapeUser,
   initialStatusOptions,
   initialTableStatusOptions,
+  initialSyncedAt,
   initialError,
 }: QueueDashboardProps) {
   const [requests, setRequests] = useState(initialRequests);
+  const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(
+    initialSyncedAt,
+  );
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [filters, setFilters] = useState<Filters>(emptyFilters);
+  const refreshInFlightRef = useRef(false);
+  const mutationCountRef = useRef(0);
   const manufacturingUsers = useMemo(
     () => {
       const users =
@@ -212,7 +241,6 @@ export function QueueDashboard({
   const { toasts, addToast, dismissToast } = useToasts(
     initialQueueToasts(initialError),
   );
-  const [isPending, startTransition] = useTransition();
   const actingUser =
     manufacturingUsers.find((user) => user.slackUserId === actingUserId) ??
     manufacturingUsers[0];
@@ -320,27 +348,88 @@ export function QueueDashboard({
     }
   }
 
-  async function refreshQueue() {
-    const response = await fetch("/api/requests");
-    const body = await response.json();
-    if (!response.ok) {
-      addToast({
-        variant: "danger",
-        title: "Refresh failed",
-        message: body.error ?? "Could not refresh queue.",
-      });
-      return;
+  const refreshQueue = useCallback(
+    async ({ silent = false }: { silent?: boolean } = {}) => {
+      if (refreshInFlightRef.current) {
+        return;
+      }
+
+      if (silent && mutationCountRef.current > 0) {
+        return;
+      }
+
+      refreshInFlightRef.current = true;
+      setIsRefreshing(true);
+
+      try {
+        const response = await fetch("/api/requests", { cache: "no-store" });
+        const body = await response.json();
+        if (!response.ok) {
+          if (!silent) {
+            addToast({
+              variant: "danger",
+              title: "Refresh failed",
+              message: body.error ?? "Could not refresh queue.",
+            });
+          }
+          return;
+        }
+
+        setRequests(body.data);
+        setLastSyncedAt(new Date().toISOString());
+
+        if (!silent) {
+          addToast({
+            variant: "success",
+            title: "Queue refreshed",
+            message: "Latest manufacturing requests loaded.",
+          });
+        }
+      } catch (error) {
+        if (!silent) {
+          addToast({
+            variant: "danger",
+            title: "Refresh failed",
+            message:
+              error instanceof Error ? error.message : "Could not refresh queue.",
+          });
+        }
+      } finally {
+        refreshInFlightRef.current = false;
+        setIsRefreshing(false);
+      }
+    },
+    [addToast],
+  );
+
+  useEffect(() => {
+    const intervalId = window.setInterval(() => {
+      if (document.visibilityState === "visible") {
+        void refreshQueue({ silent: true });
+      }
+    }, queueAutoRefreshMs);
+
+    return () => window.clearInterval(intervalId);
+  }, [refreshQueue]);
+
+  useEffect(() => {
+    function refreshIfVisible() {
+      if (document.visibilityState === "visible") {
+        void refreshQueue({ silent: true });
+      }
     }
 
-    setRequests(body.data);
-    addToast({
-      variant: "success",
-      title: "Queue refreshed",
-      message: "Latest manufacturing requests loaded.",
-    });
-  }
+    window.addEventListener("focus", refreshIfVisible);
+    document.addEventListener("visibilitychange", refreshIfVisible);
+
+    return () => {
+      window.removeEventListener("focus", refreshIfVisible);
+      document.removeEventListener("visibilitychange", refreshIfVisible);
+    };
+  }, [refreshQueue]);
 
   async function updateStatus(id: string, status: ManufacturingStatus) {
+    mutationCountRef.current += 1;
     const previous = requests;
     const previousRequest = requests.find((request) => request.id === id);
     setRequests((current) =>
@@ -349,83 +438,116 @@ export function QueueDashboard({
       ),
     );
 
-    const response = await fetch(`/api/requests/${encodeURIComponent(id)}/status`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        status,
-        changedBy: actingUser.displayName,
-        changedBySlackId: actingUser.slackUserId,
-        airtableTableId: previousRequest?.airtableTableId,
-        airtableTableName: previousRequest?.airtableTableName,
-      }),
-    });
-    const body = await response.json();
+    try {
+      const response = await fetch(
+        `/api/requests/${encodeURIComponent(id)}/status`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            status,
+            changedBy: actingUser.displayName,
+            changedBySlackId: actingUser.slackUserId,
+            airtableTableId: previousRequest?.airtableTableId,
+            airtableTableName: previousRequest?.airtableTableName,
+          }),
+        },
+      );
+      const body = await response.json();
 
-    if (!response.ok) {
+      if (!response.ok) {
+        setRequests(previous);
+        addToast({
+          variant: "danger",
+          title: "Status update failed",
+          message: body.error ?? "Could not update status.",
+        });
+        return;
+      }
+
+      setRequests((current) =>
+        current.map((request) => (request.id === id ? body.data : request)),
+      );
+      setLastSyncedAt(new Date().toISOString());
+      if (body.warnings?.length) {
+        showWarnings(body.warnings);
+      }
+      addToast({
+        variant: "success",
+        title: "Status updated",
+        message: `${body.data.partName ?? previousRequest?.partName ?? "Part"} moved from ${
+          previousRequest?.status ?? "the previous status"
+        } to ${body.data.status}.`,
+      });
+    } catch (error) {
       setRequests(previous);
       addToast({
         variant: "danger",
         title: "Status update failed",
-        message: body.error ?? "Could not update status.",
+        message:
+          error instanceof Error ? error.message : "Could not update status.",
       });
-      return;
+    } finally {
+      mutationCountRef.current = Math.max(0, mutationCountRef.current - 1);
     }
 
-    setRequests((current) =>
-      current.map((request) => (request.id === id ? body.data : request)),
-    );
-    if (body.warnings?.length) {
-      showWarnings(body.warnings);
-    }
-    addToast({
-      variant: "success",
-      title: "Status updated",
-      message: `${body.data.partName ?? previousRequest?.partName ?? "Part"} moved from ${
-        previousRequest?.status ?? "the previous status"
-      } to ${body.data.status}.`,
-    });
+    void refreshQueue({ silent: true });
   }
 
   async function createSpares(request: ManufacturingRequest) {
+    mutationCountRef.current += 1;
     const spareQuantity = spareQuantities[request.id] ?? "1";
 
-    const response = await fetch(
-      `/api/requests/${encodeURIComponent(request.id)}/spares`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          spareQuantity,
-          submitter: actingUser.displayName,
-          submitterSlackId: actingUser.slackUserId,
-          airtableTableId: request.airtableTableId,
-          airtableTableName: request.airtableTableName,
-        }),
-      },
-    );
-    const body = await response.json();
+    try {
+      const response = await fetch(
+        `/api/requests/${encodeURIComponent(request.id)}/spares`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            spareQuantity,
+            submitter: actingUser.displayName,
+            submitterSlackId: actingUser.slackUserId,
+            airtableTableId: request.airtableTableId,
+            airtableTableName: request.airtableTableName,
+          }),
+        },
+      );
+      const body = await response.json();
 
-    if (!response.ok) {
+      if (!response.ok) {
+        addToast({
+          variant: "danger",
+          title: "Spares failed",
+          message: body.error ?? "Could not create spare request.",
+        });
+        return;
+      }
+
+      setRequests((current) => [body.data, ...current]);
+      setLastSyncedAt(new Date().toISOString());
+      if (body.warnings?.length) {
+        showWarnings(body.warnings);
+      }
+      addToast({
+        variant: "success",
+        title: "Spares created",
+        message: `${spareQuantity} spare request${
+          spareQuantity === "1" ? "" : "s"
+        } added for ${request.partName}.`,
+      });
+    } catch (error) {
       addToast({
         variant: "danger",
         title: "Spares failed",
-        message: body.error ?? "Could not create spare request.",
+        message:
+          error instanceof Error ? error.message : "Could not create spare request.",
       });
-      return;
+    } finally {
+      mutationCountRef.current = Math.max(0, mutationCountRef.current - 1);
     }
 
-    setRequests((current) => [body.data, ...current]);
-    if (body.warnings?.length) {
-      showWarnings(body.warnings);
-    }
-    addToast({
-      variant: "success",
-      title: "Spares created",
-      message: `${spareQuantity} spare request${
-        spareQuantity === "1" ? "" : "s"
-      } added for ${request.partName}.`,
-    });
+    void refreshQueue({ silent: true });
   }
 
   return (
@@ -454,12 +576,26 @@ export function QueueDashboard({
                 ))}
               </select>
             </label>
+            <div
+              aria-live="polite"
+              className="flex h-10 items-center whitespace-nowrap text-xs font-medium text-[#5c6f8a]"
+            >
+              {isRefreshing
+                ? "Syncing..."
+                : `Last synced ${formatLastSynced(lastSyncedAt)}`}
+            </div>
             <button
               type="button"
-              onClick={() => startTransition(refreshQueue)}
+              onClick={() => void refreshQueue({ silent: false })}
+              disabled={isRefreshing}
+              aria-busy={isRefreshing}
               className="interactive inline-flex h-10 items-center justify-center gap-2 rounded-md border border-[#b8c9e3] bg-white px-3 text-sm font-medium hover:bg-[#edf4ff]"
             >
-              <RefreshCw size={17} aria-hidden="true" />
+              <RefreshCw
+                size={17}
+                aria-hidden="true"
+                className={isRefreshing ? "animate-spin" : undefined}
+              />
               Refresh
             </button>
             <Link
@@ -730,11 +866,6 @@ export function QueueDashboard({
           </div>
         </section>
 
-        {isPending && (
-          <div className="fixed bottom-4 right-4 rounded-md bg-[#0b3d91] px-3 py-2 text-sm text-white">
-            Updating queue
-          </div>
-        )}
       </div>
     </main>
   );

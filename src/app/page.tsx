@@ -51,6 +51,7 @@ export default async function Home() {
       initialOnshapeUser={onshapeUser}
       initialStatusOptions={statusOptions}
       initialTableStatusOptions={tableStatusOptions}
+      initialSyncedAt={new Date().toISOString()}
       initialError={initialError}
     />
   );
