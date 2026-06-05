@@ -446,6 +446,7 @@ export async function getAirtableSubmissionFieldOptions(): Promise<SubmissionFie
     return {
       subsystems: [],
       vendors: [],
+      statuses: [],
       machineTypes: [],
       postProcesses: [],
       airtableTables: [],
@@ -463,6 +464,7 @@ export async function getAirtableSubmissionFieldOptions(): Promise<SubmissionFie
       return {
         subsystems: [],
         vendors: [],
+        statuses: [],
         machineTypes: [],
         postProcesses: [],
         airtableTables: [],
@@ -483,6 +485,9 @@ export async function getAirtableSubmissionFieldOptions(): Promise<SubmissionFie
           ),
         ),
       ),
+      statuses: uniqueSorted(
+        tables.flatMap((table) => fieldChoices(fieldByName(table, ["Status"]))),
+      ),
       machineTypes: uniqueSorted(
         tables.flatMap((table) =>
           fieldChoices(fieldByName(table, ["Machine", "Machine Type"])),
@@ -496,12 +501,14 @@ export async function getAirtableSubmissionFieldOptions(): Promise<SubmissionFie
       airtableTables: tables.map((table) => ({
         id: table.id,
         name: table.name,
+        statuses: fieldChoices(fieldByName(table, ["Status"])),
       })),
     };
   } catch (error) {
     return {
       subsystems: [],
       vendors: [],
+      statuses: [],
       machineTypes: [],
       postProcesses: [],
       airtableTables: [],

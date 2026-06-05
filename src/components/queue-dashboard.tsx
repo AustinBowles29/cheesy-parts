@@ -13,6 +13,7 @@ import {
 import Link from "next/link";
 import { type ReactNode, useMemo, useState, useTransition } from "react";
 import { CATEGORIES, MACHINE_TYPES, STATUSES } from "@/lib/constants";
+import { coerceStatus } from "@/lib/manufacturing";
 import type {
   ManufacturingRequest,
   ManufacturingStatus,
@@ -23,6 +24,8 @@ import { ToastViewport, useToasts } from "./toast";
 interface QueueDashboardProps {
   initialRequests: ManufacturingRequest[];
   initialManufacturingUsers: SlackUser[];
+  initialStatusOptions: string[];
+  initialTableStatusOptions: Record<string, string[]>;
   initialError?: string;
 }
 
@@ -55,16 +58,55 @@ function uniqueOptions(
   ).sort((a, b) => a.localeCompare(b));
 }
 
+type SelectOption = {
+  label: string;
+  value: string;
+};
+
+function statusMatches(status: string, selectedStatus: string) {
+  return (
+    status === selectedStatus ||
+    coerceStatus(status) === coerceStatus(selectedStatus)
+  );
+}
+
+function buildStatusOptions(labels: readonly string[]): SelectOption[] {
+  const seen = new Set<string>();
+  const options: SelectOption[] = [];
+
+  for (const label of labels) {
+    const trimmedLabel = label.trim();
+    if (!trimmedLabel) {
+      continue;
+    }
+
+    const value = coerceStatus(trimmedLabel);
+    if (seen.has(value)) {
+      continue;
+    }
+
+    seen.add(value);
+    options.push({ label: trimmedLabel, value });
+  }
+
+  return options;
+}
+
 function statusTone(status: ManufacturingStatus) {
-  if (status === "Manufacturing In Progress") {
+  const normalizedStatus = coerceStatus(status);
+
+  if (normalizedStatus === "Manufacturing In Progress") {
     return "bg-[#fff2cf] text-[#7c5608]";
   }
 
-  if (status === "Ready for Assembly" || status === "Done for Spares") {
+  if (
+    normalizedStatus === "Ready for Assembly" ||
+    normalizedStatus === "Done for Spares"
+  ) {
     return "bg-[#eef5ff] text-[#0b3d91]";
   }
 
-  if (status === "Needs CAM" || status === "Needs Drawing") {
+  if (normalizedStatus === "Needs CAM" || normalizedStatus === "Needs Drawing") {
     return "bg-[#f8e7e2] text-[#87392b]";
   }
 
@@ -88,6 +130,8 @@ function initialQueueToasts(initialError?: string) {
 export function QueueDashboard({
   initialRequests,
   initialManufacturingUsers,
+  initialStatusOptions,
+  initialTableStatusOptions,
   initialError,
 }: QueueDashboardProps) {
   const [requests, setRequests] = useState(initialRequests);
@@ -118,6 +162,27 @@ export function QueueDashboard({
     }),
     [requests],
   );
+  const statusOptions = useMemo(() => {
+    const labels =
+      initialStatusOptions.length > 0 ? initialStatusOptions : STATUSES;
+
+    return buildStatusOptions([
+      ...labels,
+      ...requests.map((request) => request.status),
+    ]);
+  }, [initialStatusOptions, requests]);
+  const tableStatusOptions = useMemo(() => {
+    return Object.fromEntries(
+      Object.entries(initialTableStatusOptions).map(([table, labels]) => [
+        table,
+        buildStatusOptions(
+          labels.length > 0
+            ? labels
+            : statusOptions.map((option) => option.label),
+        ),
+      ]),
+    );
+  }, [initialTableStatusOptions, statusOptions]);
 
   const filteredRequests = useMemo(() => {
     return requests.filter((request) => {
@@ -137,7 +202,7 @@ export function QueueDashboard({
       return (
         (!filters.subsystem || request.subsystem === filters.subsystem) &&
         (!filters.machineType || request.machineType === filters.machineType) &&
-        (!filters.status || request.status === filters.status) &&
+        (!filters.status || statusMatches(request.status, filters.status)) &&
         (!filters.category || request.category === filters.category) &&
         (!filters.submitter || request.submitter === filters.submitter) &&
         (!filters.material || request.material === filters.material) &&
@@ -148,11 +213,30 @@ export function QueueDashboard({
   }, [filters, requests]);
 
   const statusCounts = useMemo(() => {
-    return STATUSES.map((status) => ({
-      status,
-      count: requests.filter((request) => request.status === status).length,
+    return statusOptions.map((option) => ({
+      ...option,
+      count: requests.filter((request) =>
+        statusMatches(request.status, option.value),
+      ).length,
     }));
-  }, [requests]);
+  }, [requests, statusOptions]);
+
+  function statusOptionsForRequest(request: ManufacturingRequest) {
+    const tableOptions =
+      tableStatusOptions[request.airtableTableId ?? ""] ??
+      tableStatusOptions[request.airtableTableName ?? ""];
+    const optionsForRequest = tableOptions ?? statusOptions;
+    const currentStatus = coerceStatus(request.status);
+
+    if (optionsForRequest.some((option) => option.value === currentStatus)) {
+      return optionsForRequest;
+    }
+
+    return [
+      ...optionsForRequest,
+      { label: request.status, value: currentStatus },
+    ];
+  }
 
   function showWarnings(warnings: string[] = []) {
     for (const warning of warnings) {
@@ -198,7 +282,7 @@ export function QueueDashboard({
     const previousRequest = requests.find((request) => request.id === id);
     setRequests((current) =>
       current.map((request) =>
-        request.id === id ? { ...request, status } : request,
+        request.id === id ? { ...request, status: coerceStatus(status) } : request,
       ),
     );
 
@@ -339,14 +423,14 @@ export function QueueDashboard({
           />
           {statusCounts.map((item) => (
             <StatusCard
-              key={item.status}
-              label={item.status}
+              key={item.value}
+              label={item.label}
               count={item.count}
-              active={filters.status === item.status}
+              active={filters.status === item.value}
               onClick={() =>
                 setFilters((current) => ({
                   ...current,
-                  status: item.status,
+                  status: item.value,
                 }))
               }
             />
@@ -398,7 +482,7 @@ export function QueueDashboard({
             <FilterSelect
               label="Status"
               value={filters.status}
-              options={STATUSES}
+              options={statusOptions}
               onChange={(value) =>
                 setFilters((current) => ({ ...current, status: value }))
               }
@@ -455,11 +539,14 @@ export function QueueDashboard({
                 </tr>
               </thead>
               <tbody>
-                {filteredRequests.map((request) => (
-                  <tr
-                    key={request.id}
-                    className="border-t border-[#d8e2f0] align-top"
-                  >
+                {filteredRequests.map((request) => {
+                  const rowStatusOptions = statusOptionsForRequest(request);
+
+                  return (
+                    <tr
+                      key={request.id}
+                      className="border-t border-[#d8e2f0] align-top"
+                    >
                     <td className="px-3 py-3">
                       <div className="font-medium">{request.partName}</div>
                       {request.notes && (
@@ -483,7 +570,7 @@ export function QueueDashboard({
                     <td className="px-3 py-3">{request.machineType}</td>
                     <td className="px-3 py-3">
                       <select
-                        value={request.status}
+                        value={coerceStatus(request.status)}
                         onChange={(event) =>
                           updateStatus(
                             request.id,
@@ -494,8 +581,10 @@ export function QueueDashboard({
                           request.status,
                         )}`}
                       >
-                        {STATUSES.map((status) => (
-                          <option key={status}>{status}</option>
+                        {rowStatusOptions.map((status) => (
+                          <option key={status.value} value={status.value}>
+                            {status.label}
+                          </option>
                         ))}
                       </select>
                     </td>
@@ -560,8 +649,9 @@ export function QueueDashboard({
                         />
                       </div>
                     </td>
-                  </tr>
-                ))}
+                    </tr>
+                  );
+                })}
                 {filteredRequests.length === 0 && (
                   <tr>
                     <td
@@ -595,7 +685,7 @@ function FilterSelect({
 }: {
   label: string;
   value: string;
-  options: readonly string[];
+  options: readonly (string | SelectOption)[];
   onChange: (value: string) => void;
 }) {
   return (
@@ -603,11 +693,21 @@ function FilterSelect({
       <span>{label}</span>
       <select value={value} onChange={(event) => onChange(event.target.value)}>
         <option value="">All</option>
-        {options.map((option) => (
-          <option key={option} value={option}>
-            {option}
-          </option>
-        ))}
+        {options.map((option) => {
+          const normalizedOption =
+            typeof option === "string"
+              ? { label: option, value: option }
+              : option;
+
+          return (
+            <option
+              key={`${normalizedOption.value}:${normalizedOption.label}`}
+              value={normalizedOption.value}
+            >
+              {normalizedOption.label}
+            </option>
+          );
+        })}
       </select>
     </label>
   );

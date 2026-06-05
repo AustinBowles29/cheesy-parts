@@ -72,7 +72,7 @@ export function coerceStatus(value: unknown): ManufacturingStatus {
   return (
     statusAliases[normalizedChoiceKey(value)] ??
     matchingChoice(STATUSES, value) ??
-    DEFAULT_STATUS
+    normalizeString(value, DEFAULT_STATUS)
   );
 }
 
