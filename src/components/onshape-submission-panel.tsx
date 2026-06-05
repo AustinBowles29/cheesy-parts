@@ -155,6 +155,28 @@ export function OnshapeSubmissionPanel({
     postProcessOptions[0] ||
     "Raw";
   const dirtyFieldsRef = useRef<Set<string>>(new Set());
+  const selectedContextKey = useMemo(
+    () =>
+      [
+        defaults.onshapeDocumentId,
+        defaults.onshapeWvm,
+        defaults.onshapeWvmId,
+        defaults.onshapePartUrl,
+        defaults.partName,
+        defaults.partNumber,
+      ]
+        .map((value) => String(value ?? ""))
+        .join("|"),
+    [
+      defaults.onshapeDocumentId,
+      defaults.onshapePartUrl,
+      defaults.onshapeWvm,
+      defaults.onshapeWvmId,
+      defaults.partName,
+      defaults.partNumber,
+    ],
+  );
+  const selectedContextKeyRef = useRef(selectedContextKey);
   const [submitter, setSubmitter] = useState(defaults.submitter ?? "");
   const [selectedAirtableTableId, setSelectedAirtableTableId] = useState(
     () => initialAirtableTableValue(defaults, airtableTables),
@@ -177,6 +199,7 @@ export function OnshapeSubmissionPanel({
     dropdownInitialValue(defaults.vendorName, fieldOptions.vendors),
   );
   const [hasDrawing, setHasDrawing] = useState(false);
+  const [drawingFileName, setDrawingFileName] = useState("");
   const [machineOverride, setMachineOverride] = useState(() =>
     dropdownInitialValue(defaults.machineType, machineOptions),
   );
@@ -197,6 +220,13 @@ export function OnshapeSubmissionPanel({
       fieldOptions.warning,
     ),
   );
+
+  useEffect(() => {
+    if (selectedContextKeyRef.current !== selectedContextKey) {
+      dirtyFieldsRef.current.clear();
+      selectedContextKeyRef.current = selectedContextKey;
+    }
+  }, [selectedContextKey]);
 
   useEffect(() => {
     const updatePristineField = (
@@ -257,6 +287,7 @@ export function OnshapeSubmissionPanel({
     fieldOptions.subsystems,
     fieldOptions.vendors,
     machineOptions,
+    selectedContextKey,
   ]);
 
   const inferredMachineType = useMemo(
@@ -875,17 +906,35 @@ export function OnshapeSubmissionPanel({
               Drawing PDF
             </div>
             <div className="grid gap-3">
-              <label className="field">
-                <span>Drawing PDF</span>
+              <div className="field">
+                <span id="drawing-file-label">Drawing PDF</span>
+                <label
+                  htmlFor="drawing-file"
+                  className="interactive inline-flex h-10 w-fit cursor-pointer items-center justify-center rounded-md border border-[#b8c9e3] bg-white px-3 text-sm font-semibold text-[#0b3d91] hover:bg-[#edf4ff]"
+                >
+                  Choose file
+                </label>
                 <input
+                  id="drawing-file"
                   name="drawing"
                   type="file"
                   accept="application/pdf"
-                  onChange={(event) =>
-                    setHasDrawing((event.currentTarget.files?.length ?? 0) > 0)
-                  }
+                  aria-labelledby="drawing-file-label"
+                  aria-describedby="drawing-file-status"
+                  className="sr-only"
+                  onChange={(event) => {
+                    const file = event.currentTarget.files?.[0];
+                    setDrawingFileName(file?.name ?? "");
+                    setHasDrawing(Boolean(file));
+                  }}
                 />
-              </label>
+                <div
+                  id="drawing-file-status"
+                  className="text-sm text-[#5c6f8a]"
+                >
+                  {drawingFileName || "No file chosen"}
+                </div>
+              </div>
             </div>
           </div>
         </section>

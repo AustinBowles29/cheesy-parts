@@ -17,6 +17,8 @@ export const metadata: Metadata = {
   title: "Submit Part | Team 254 Manufacturing",
 };
 
+export const dynamic = "force-dynamic";
+
 function firstParam(value: string | string[] | undefined) {
   const rawValue = Array.isArray(value) ? value[0] : value;
   if (!rawValue) {
@@ -138,6 +140,7 @@ function defaultsFromSearchParams(
     machineType: firstParam(params.machineType),
     onshapePartUrl,
     onshapeDrawingUrl,
+    onshapeDrawingElementId: drawingElementId,
     onshapeDocumentId: context?.documentId,
     onshapeWvm: context?.wvm,
     onshapeWvmId: context?.wvmId,
@@ -183,16 +186,41 @@ function mergeAutofillDefaults(
 ) {
   return {
     ...defaults,
+    airtableTableId: defaults.airtableTableId || autofill.airtableTableId,
+    airtableTableName: defaults.airtableTableName || autofill.airtableTableName,
     partName: defaults.partName || autofill.partName,
     partNumber: defaults.partNumber || autofill.partNumber,
     notes: defaults.notes || autofill.notes || autofill.description,
     material: defaults.material || autofill.material,
     thickness: defaults.thickness || autofill.thickness,
+    quantity: defaults.quantity || autofill.quantity,
+    subsystem: defaults.subsystem || autofill.subsystem,
+    machineType: defaults.machineType || autofill.machineType,
     submitter: defaults.submitter || autofill.submitter,
+    onshapePartUrl: defaults.onshapePartUrl || autofill.onshapePartUrl,
     onshapeDrawingUrl:
       defaults.onshapeDrawingUrl || autofill.onshapeDrawingUrl,
     onshapeDrawingElementId:
       defaults.onshapeDrawingElementId || autofill.onshapeDrawingElementId,
+    onshapeDocumentId:
+      defaults.onshapeDocumentId || autofill.onshapeDocumentId,
+    onshapeWvm: defaults.onshapeWvm || autofill.onshapeWvm,
+    onshapeWvmId: defaults.onshapeWvmId || autofill.onshapeWvmId,
+    assemblyUrl: defaults.assemblyUrl || autofill.assemblyUrl,
+    branchVersionReference:
+      defaults.branchVersionReference || autofill.branchVersionReference,
+    finish: defaults.finish || autofill.finish,
+    priority: defaults.priority || autofill.priority,
+    printMaterial: defaults.printMaterial || autofill.printMaterial,
+    printColor: defaults.printColor || autofill.printColor,
+    infill: defaults.infill || autofill.infill,
+    layerHeight: defaults.layerHeight || autofill.layerHeight,
+    printerNotes: defaults.printerNotes || autofill.printerNotes,
+    vendorName: defaults.vendorName || autofill.vendorName,
+    quoteRequired: defaults.quoteRequired || autofill.quoteRequired,
+    leadTime: defaults.leadTime || autofill.leadTime,
+    vendorNotes: defaults.vendorNotes || autofill.vendorNotes,
+    sourceDocument: defaults.sourceDocument || autofill.sourceDocument,
   };
 }
 
