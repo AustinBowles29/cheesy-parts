@@ -791,7 +791,7 @@ export function QueueDashboard({
                 <col className="w-[10%]" />
                 <col className="w-[13%]" />
               </colgroup>
-              <thead className="bg-[#edf4ff] text-left text-xs uppercase text-[#5c6f8a]">
+              <thead className="sticky top-0 z-10 bg-[#edf4ff] text-left text-xs uppercase text-[#5c6f8a]">
                 <tr>
                   <th className="px-1 py-3 sm:px-3">Part</th>
                   <th className="px-1 py-3 sm:px-3">Part Number</th>
