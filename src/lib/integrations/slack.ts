@@ -1,4 +1,4 @@
-import { coerceStatus, normalizeString } from "../manufacturing";
+import { normalizeString } from "../manufacturing";
 import type { ManufacturingRequest, ManufacturingStatus } from "../types";
 import { getManufacturingSlackUsers } from "./slack-users";
 
@@ -224,11 +224,66 @@ function drawingPdfLinkLabel(request: ManufacturingRequest) {
     (attachment) => attachment.kind === "drawing" && attachment.url,
   );
 
-  if (drawingAttachment?.url) {
-    return slackLink(drawingAttachment.url, drawingAttachment.filename || "Drawing PDF");
+  if (!drawingAttachment?.url) {
+    return "";
   }
 
-  return "";
+  const stableUrl = stableDrawingPdfUrl(request);
+  return slackLink(
+    stableUrl || drawingAttachment.url,
+    drawingAttachment.filename || "Drawing PDF",
+  );
+}
+
+function appBaseUrl() {
+  const explicitUrl =
+    process.env.APP_URL ??
+    process.env.NEXT_PUBLIC_APP_URL ??
+    process.env.VERCEL_PROJECT_PRODUCTION_URL ??
+    process.env.VERCEL_URL;
+
+  if (!explicitUrl) {
+    return "";
+  }
+
+  return explicitUrl.startsWith("http")
+    ? explicitUrl.replace(/\/$/, "")
+    : `https://${explicitUrl.replace(/\/$/, "")}`;
+}
+
+function stableDrawingPdfUrl(request: ManufacturingRequest) {
+  const baseUrl = appBaseUrl();
+  const recordId = request.airtableId ?? request.id;
+
+  if (!baseUrl || !recordId) {
+    return "";
+  }
+
+  const url = new URL(
+    `/api/requests/${encodeURIComponent(recordId)}/drawing`,
+    baseUrl,
+  );
+
+  if (request.airtableTableId) {
+    url.searchParams.set("tableId", request.airtableTableId);
+  } else if (request.airtableTableName) {
+    url.searchParams.set("tableName", request.airtableTableName);
+  }
+
+  return url.toString();
+}
+
+function onshapeDrawingLinkLabel(request: ManufacturingRequest) {
+  return optionalSlackLink(request.onshapeDrawingUrl, "Onshape drawing");
+}
+
+function drawingLinksLabel(request: ManufacturingRequest) {
+  const links = [
+    drawingPdfLinkLabel(request) || "No drawing PDF attached",
+    onshapeDrawingLinkLabel(request),
+  ].filter(Boolean);
+
+  return links.join(" | ");
 }
 
 function linksLabel(request: ManufacturingRequest) {
@@ -250,13 +305,13 @@ export async function notifyNewSubmission(request: ManufacturingRequest) {
   const ownerText =
     ownerMentions.length > 0 ? ownerMentions.join(" ") : "Not configured";
   const submitterText = await submitterLabel(request);
-  const drawingText = drawingPdfLinkLabel(request) || "No drawing PDF attached";
+  const drawingText = drawingLinksLabel(request);
 
   return postSlack({
     webhookUrl: manufacturingWebhookUrl(),
     channelId: manufacturingChannelId(),
     payload: {
-      text: `New manufacturing request: ${request.partName} submitted by ${request.submitter || "Unknown"}${
+      text: `New manufacturing request: ${request.partName} submitted by ${request.submitter || "Unknown"} manufacturing${
         ownerMentions.length > 0 ? ` ${ownerMentions.join(" ")}` : ""
       }`,
       blocks: [
@@ -265,6 +320,13 @@ export async function notifyNewSubmission(request: ManufacturingRequest) {
           text: {
             type: "plain_text",
             text: "New manufacturing request",
+          },
+        },
+        {
+          type: "section",
+          text: {
+            type: "mrkdwn",
+            text: "Notify: manufacturing",
           },
         },
         {
@@ -324,10 +386,7 @@ export async function notifyStatusChange(input: {
   changedBy: string;
   changedBySlackId?: string;
 }) {
-  const ownerMentions =
-    coerceStatus(input.newStatus) === "Manufacturing In Progress"
-      ? subsystemOwnerMentions(input.request.subsystem)
-      : [];
+  const ownerMentions = subsystemOwnerMentions(input.request.subsystem);
   const partLabel =
     input.request.partName ||
     input.request.partNumber ||
@@ -344,12 +403,13 @@ export async function notifyStatusChange(input: {
   const changedByText = input.changedBySlackId
     ? `<@${input.changedBySlackId}>`
     : input.changedBy || "Unknown";
+  const partOwnerText = await submitterLabel(input.request);
 
   return postSlack({
     webhookUrl: statusWebhookUrl(),
     channelId: statusChannelId(),
     payload: {
-      text: `${plainStatusText} changed by ${input.changedBy || "Unknown"} manufacturing`,
+      text: `${plainStatusText} changed by ${input.changedBy || "Unknown"}`,
       blocks: [
         {
           type: "section",
@@ -357,7 +417,7 @@ export async function notifyStatusChange(input: {
             type: "mrkdwn",
             text: `${statusText}\nPriority: ${priorityLabel(
               input.request,
-            )}\nChanged by: ${changedByText}\nNotify: manufacturing${
+            )}\nChanged by: ${changedByText}\nPart owner: ${partOwnerText}${
               ownerMentions.length > 0
                 ? `\nSubsystem owner: ${ownerMentions.join(" ")}`
                 : ""
@@ -371,7 +431,7 @@ export async function notifyStatusChange(input: {
 
 export async function notify3DPrintSubmission(request: ManufacturingRequest) {
   const submitterText = await submitterLabel(request);
-  const drawingText = drawingPdfLinkLabel(request) || "No drawing PDF attached";
+  const drawingText = drawingLinksLabel(request);
 
   return postSlack({
     webhookUrl: printWebhookUrl(),

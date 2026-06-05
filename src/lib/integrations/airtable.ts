@@ -564,6 +564,61 @@ function attachmentFields(
     }));
 }
 
+function attachmentRefsFromField(
+  fields: Record<string, unknown>,
+  names: string[],
+  kind: AttachmentRef["kind"],
+) {
+  const attachments: AttachmentRef[] = [];
+
+  for (const name of names) {
+    const value = fields[name];
+    if (!Array.isArray(value)) {
+      continue;
+    }
+
+    for (const item of value) {
+      if (!item || typeof item !== "object") {
+        continue;
+      }
+
+      const record = item as Record<string, unknown>;
+      const url = normalizeString(record.url);
+      const filename = normalizeString(record.filename) || `${kind}-attachment`;
+      const contentType = normalizeString(record.type) || "application/octet-stream";
+      const sizeValue = record.size;
+      const size = typeof sizeValue === "number" ? sizeValue : 0;
+
+      if (!url) {
+        continue;
+      }
+
+      attachments.push({
+        id: normalizeString(record.id) || url,
+        filename,
+        contentType,
+        kind,
+        size,
+        url,
+      });
+    }
+  }
+
+  return attachments;
+}
+
+function attachmentRefsFromFields(fields: Record<string, unknown>) {
+  return [
+    ...attachmentRefsFromField(
+      fields,
+      ["Part Drawing / File (Check with Designed)", "Drawing", "Drawing PDF"],
+      "drawing",
+    ),
+    ...attachmentRefsFromField(fields, ["DXF"], "dxf"),
+    ...attachmentRefsFromField(fields, ["Other files"], "other"),
+  ];
+}
+
 function writableFieldByName(
   table: AirtableTableSchema | null | undefined,
   names: string[],
@@ -1108,7 +1163,7 @@ export function mapAirtableRecord(
       record.createdTime ||
       new Date().toISOString(),
     status: coerceStatus(fields.Status),
-    attachments: [],
+    attachments: attachmentRefsFromFields(fields),
     manufacturingNotes: fieldString(fields, "Manufacturing Notes"),
     priority: fieldStringFrom(fields, [
       "Priority",
@@ -1156,6 +1211,10 @@ export async function createAirtableRecord(request: ManufacturingRequest) {
     airtableTableId: target?.airtableTableId,
     airtableTableName: target?.airtableTableName,
     status: savedRequest.status,
+    attachments:
+      savedRequest.attachments.length > 0
+        ? savedRequest.attachments
+        : request.attachments,
   };
 }
 
