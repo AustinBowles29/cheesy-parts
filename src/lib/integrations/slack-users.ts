@@ -26,6 +26,7 @@ interface SlackUserInfoResponse extends SlackApiResponse {
     profile?: {
       display_name?: string;
       real_name?: string;
+      email?: string;
     };
   };
 }
@@ -152,6 +153,8 @@ async function getSlackUser(userId: string): Promise<SlackUser | null> {
       user.real_name ||
       user.name ||
       user.id,
+    email: user.profile?.email,
+    handle: user.name,
   };
 }
 

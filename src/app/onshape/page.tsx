@@ -148,7 +148,13 @@ function defaultsFromSearchParams(
       ),
     category: firstParam(params.category) ?? "Robot",
     finish: firstParam(params.finish) ?? "Raw",
-    submitter: firstParam(params.submitter) ?? "",
+    submitter:
+      firstParam(params.submitter) ??
+      firstParam(params.owner) ??
+      firstParam(params.userName) ??
+      firstParam(params.username) ??
+      firstParam(params.displayName) ??
+      "",
     manufacturingNotes:
       firstParam(params.manufacturingNotes) ??
       firstParam(params.fabricationNotes) ??

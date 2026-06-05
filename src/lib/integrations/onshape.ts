@@ -1,7 +1,7 @@
 import { cookies } from "next/headers";
 import { saveGeneratedFile } from "../files";
 import { normalizeString } from "../manufacturing";
-import type { AttachmentRef, SubmissionInput } from "../types";
+import type { AttachmentRef, OnshapeUser, SubmissionInput } from "../types";
 
 const defaultAuthUrl = "https://oauth.onshape.com/oauth/authorize";
 const defaultTokenUrl = "https://oauth.onshape.com/oauth/token";
@@ -47,12 +47,24 @@ interface OnshapeMetadata {
 interface OnshapeUserProfile {
   id?: string;
   name?: string;
+  displayName?: string;
+  display_name?: string;
+  username?: string;
+  userName?: string;
+  user_name?: string;
   email?: string;
+  emails?: Array<string | { value?: string; email?: string }>;
   firstName?: string;
+  first_name?: string;
   lastName?: string;
+  last_name?: string;
   nickname?: string;
   documentationName?: string;
+  documentation_name?: string;
   user?: OnshapeUserProfile;
+  profile?: OnshapeUserProfile;
+  _json?: OnshapeUserProfile;
+  json?: OnshapeUserProfile;
 }
 
 interface OnshapeElement {
@@ -89,6 +101,7 @@ export interface OnshapeMetadataResult {
 
 export interface OnshapeUserResult {
   defaults: SubmissionInput;
+  user?: OnshapeUser;
 }
 
 function clientId() {
@@ -236,18 +249,130 @@ export async function getOnshapeAccessToken() {
 }
 
 function onshapeUserDisplayName(profile: OnshapeUserProfile) {
-  const fullName = [profile.firstName, profile.lastName]
+  const firstName = profile.firstName ?? profile.first_name;
+  const lastName = profile.lastName ?? profile.last_name;
+  const fullName = [firstName, lastName]
     .map((name) => normalizeString(name))
     .filter(Boolean)
     .join(" ");
 
   return (
-    normalizeString(profile.documentationName) ||
+    normalizeString(profile.displayName ?? profile.display_name) ||
+    normalizeString(profile.documentationName ?? profile.documentation_name) ||
     normalizeString(profile.name) ||
     fullName ||
+    normalizeString(profile.username ?? profile.userName ?? profile.user_name) ||
     normalizeString(profile.nickname) ||
     normalizeString(profile.email)
   );
+}
+
+function onshapeUserEmail(profile: OnshapeUserProfile) {
+  const directEmail = normalizeString(profile.email);
+  if (directEmail) {
+    return directEmail;
+  }
+
+  for (const email of profile.emails ?? []) {
+    if (typeof email === "string") {
+      const value = normalizeString(email);
+      if (value) {
+        return value;
+      }
+      continue;
+    }
+
+    const value = normalizeString(email.value ?? email.email);
+    if (value) {
+      return value;
+    }
+  }
+
+  return "";
+}
+
+function uniqueProfileAliases(values: Array<string | undefined>) {
+  const seen = new Set<string>();
+  const aliases: string[] = [];
+
+  for (const value of values) {
+    const alias = normalizeString(value);
+    const key = alias.toLowerCase();
+    if (!alias || seen.has(key)) {
+      continue;
+    }
+
+    seen.add(key);
+    aliases.push(alias);
+  }
+
+  return aliases;
+}
+
+function onshapeUserFromProfile(
+  profile: OnshapeUserProfile,
+): OnshapeUser | undefined {
+  const email = onshapeUserEmail(profile);
+  const displayName = onshapeUserDisplayName({ ...profile, email });
+  if (!displayName) {
+    return undefined;
+  }
+
+  const firstName = profile.firstName ?? profile.first_name;
+  const lastName = profile.lastName ?? profile.last_name;
+  const fullName = [firstName, lastName]
+    .map((name) => normalizeString(name))
+    .filter(Boolean)
+    .join(" ");
+  const emailLocalPart = email.split("@")[0];
+  const aliases = uniqueProfileAliases([
+    displayName,
+    profile.displayName,
+    profile.display_name,
+    profile.documentationName,
+    profile.documentation_name,
+    profile.name,
+    fullName,
+    profile.username,
+    profile.userName,
+    profile.user_name,
+    profile.nickname,
+    email,
+    emailLocalPart,
+  ]);
+
+  return {
+    displayName,
+    email: email || undefined,
+    aliases,
+  };
+}
+
+function nestedUserProfile(profile: OnshapeUserProfile): OnshapeUserProfile {
+  return profile.user ?? profile.profile ?? profile._json ?? profile.json ?? profile;
+}
+
+async function fetchOnshapeUserProfile(accessToken: string) {
+  for (const path of [
+    "/users/sessioninfo",
+    "/users/current",
+    "/users/session",
+  ]) {
+    try {
+      const profile = await onshapeFetchJson<OnshapeUserProfile>(
+        path,
+        accessToken,
+      );
+      const user = onshapeUserFromProfile(nestedUserProfile(profile));
+      if (user) {
+        return user;
+      }
+    } catch {
+      continue;
+    }
+  }
+
+  return undefined;
 }
 
 export async function fetchOnshapeCurrentUser(): Promise<OnshapeUserResult> {
@@ -261,15 +386,12 @@ export async function fetchOnshapeCurrentUser(): Promise<OnshapeUserResult> {
   }
 
   try {
-    const profile = await onshapeFetchJson<OnshapeUserProfile>(
-      "/users/sessioninfo",
-      accessToken,
-    );
-    const userProfile = profile.user ?? profile;
+    const user = await fetchOnshapeUserProfile(accessToken);
     return {
       defaults: {
-        submitter: onshapeUserDisplayName(userProfile),
+        submitter: user?.displayName,
       },
+      user,
     };
   } catch {
     return { defaults: {} };

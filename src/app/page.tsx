@@ -1,9 +1,10 @@
 import type { Metadata } from "next";
 import { QueueDashboard } from "@/components/queue-dashboard";
 import { getAirtableSubmissionFieldOptions } from "@/lib/integrations/airtable";
+import { fetchOnshapeCurrentUser } from "@/lib/integrations/onshape";
 import { getManufacturingSlackUsers } from "@/lib/integrations/slack-users";
 import { listManufacturingRequests } from "@/lib/service";
-import type { ManufacturingRequest, SlackUser } from "@/lib/types";
+import type { ManufacturingRequest, OnshapeUser, SlackUser } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
@@ -14,18 +15,22 @@ export const metadata: Metadata = {
 export default async function Home() {
   let requests: ManufacturingRequest[] = [];
   let manufacturingUsers: SlackUser[] = [];
+  let onshapeUser: OnshapeUser | undefined;
   let statusOptions: string[] = [];
   let tableStatusOptions: Record<string, string[]> = {};
   let initialError: string | undefined;
 
   try {
-    const [loadedRequests, slackUsers, fieldOptions] = await Promise.all([
-      listManufacturingRequests(),
-      getManufacturingSlackUsers(),
-      getAirtableSubmissionFieldOptions(),
-    ]);
+    const [loadedRequests, slackUsers, fieldOptions, loadedOnshapeUser] =
+      await Promise.all([
+        listManufacturingRequests(),
+        getManufacturingSlackUsers(),
+        getAirtableSubmissionFieldOptions(),
+        fetchOnshapeCurrentUser(),
+      ]);
     requests = loadedRequests;
     manufacturingUsers = slackUsers.users;
+    onshapeUser = loadedOnshapeUser.user;
     statusOptions = fieldOptions.statuses;
     tableStatusOptions = Object.fromEntries(
       (fieldOptions.airtableTables ?? []).flatMap((table) => [
@@ -43,6 +48,7 @@ export default async function Home() {
     <QueueDashboard
       initialRequests={requests}
       initialManufacturingUsers={manufacturingUsers}
+      initialOnshapeUser={onshapeUser}
       initialStatusOptions={statusOptions}
       initialTableStatusOptions={tableStatusOptions}
       initialError={initialError}

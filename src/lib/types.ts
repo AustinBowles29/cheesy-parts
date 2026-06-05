@@ -43,6 +43,14 @@ export interface AuditEntry {
 export interface SlackUser {
   slackUserId: string;
   displayName: string;
+  email?: string;
+  handle?: string;
+}
+
+export interface OnshapeUser {
+  displayName: string;
+  email?: string;
+  aliases: string[];
 }
 
 export interface ManufacturingRequest {

@@ -17,6 +17,7 @@ import { coerceStatus } from "@/lib/manufacturing";
 import type {
   ManufacturingRequest,
   ManufacturingStatus,
+  OnshapeUser,
   SlackUser,
 } from "@/lib/types";
 import { ToastViewport, useToasts } from "./toast";
@@ -24,6 +25,7 @@ import { ToastViewport, useToasts } from "./toast";
 interface QueueDashboardProps {
   initialRequests: ManufacturingRequest[];
   initialManufacturingUsers: SlackUser[];
+  initialOnshapeUser?: OnshapeUser;
   initialStatusOptions: string[];
   initialTableStatusOptions: Record<string, string[]>;
   initialError?: string;
@@ -56,6 +58,52 @@ function uniqueOptions(
   return Array.from(
     new Set(requests.map(selector).filter((value) => value.trim().length > 0)),
   ).sort((a, b) => a.localeCompare(b));
+}
+
+function identityKey(value?: string) {
+  return (value ?? "").replace(/[^a-z0-9]/gi, "").toLowerCase();
+}
+
+function identityCandidates(values: Array<string | undefined>) {
+  return values.map(identityKey).filter(Boolean);
+}
+
+function onshapeIdentityCandidates(user?: OnshapeUser) {
+  if (!user) {
+    return [];
+  }
+
+  const emailLocalPart = user.email?.split("@")[0];
+  return identityCandidates([
+    user.displayName,
+    user.email,
+    emailLocalPart,
+    ...user.aliases,
+  ]);
+}
+
+function slackUserIdentityCandidates(user: SlackUser) {
+  const emailLocalPart = user.email?.split("@")[0];
+  return identityCandidates([
+    user.displayName,
+    user.email,
+    emailLocalPart,
+    user.handle,
+  ]);
+}
+
+function defaultActingUserId(users: SlackUser[], onshapeUser?: OnshapeUser) {
+  const onshapeCandidateSet = new Set(onshapeIdentityCandidates(onshapeUser));
+  const matchingUser =
+    onshapeCandidateSet.size > 0
+      ? users.find((user) =>
+          slackUserIdentityCandidates(user).some((candidate) =>
+            onshapeCandidateSet.has(candidate),
+          ),
+        )
+      : undefined;
+
+  return matchingUser?.slackUserId ?? users[0]?.slackUserId ?? "";
 }
 
 type SelectOption = {
@@ -130,18 +178,33 @@ function initialQueueToasts(initialError?: string) {
 export function QueueDashboard({
   initialRequests,
   initialManufacturingUsers,
+  initialOnshapeUser,
   initialStatusOptions,
   initialTableStatusOptions,
   initialError,
 }: QueueDashboardProps) {
   const [requests, setRequests] = useState(initialRequests);
   const [filters, setFilters] = useState<Filters>(emptyFilters);
-  const manufacturingUsers =
-    initialManufacturingUsers.length > 0
-      ? initialManufacturingUsers
-      : [{ slackUserId: "local-manufacturing", displayName: "Manufacturing" }];
-  const [actingUserId, setActingUserId] = useState(
-    manufacturingUsers[0].slackUserId,
+  const manufacturingUsers = useMemo(
+    () => {
+      const users =
+        initialManufacturingUsers.length > 0
+          ? initialManufacturingUsers
+          : [
+              {
+                slackUserId: "local-manufacturing",
+                displayName: "Manufacturing",
+              },
+            ];
+
+      return [...users].sort((a, b) =>
+        a.displayName.localeCompare(b.displayName),
+      );
+    },
+    [initialManufacturingUsers],
+  );
+  const [actingUserId, setActingUserId] = useState(() =>
+    defaultActingUserId(manufacturingUsers, initialOnshapeUser),
   );
   const [spareQuantities, setSpareQuantities] = useState<Record<string, string>>(
     {},
