@@ -816,6 +816,68 @@ function requestToFields(
   return fields;
 }
 
+function statusUpdateFields(
+  status: ManufacturingRequest["status"],
+  audit: {
+    changedBy: string;
+    changedBySlackId?: string;
+    changedAt: string;
+    auditHistory: AuditEntry[];
+  },
+  table?: AirtableTableSchema | null,
+) {
+  if (!table) {
+    return {
+      Status: status,
+    };
+  }
+
+  const fields: Record<string, unknown> = {};
+  addMappedField(
+    fields,
+    table,
+    ["Status"],
+    status,
+    statusChoiceAliases(status),
+  );
+  addMappedField(
+    fields,
+    table,
+    ["Last Status Changed By", "Status Changed By", "Changed By", "Changed by"],
+    audit.changedBy,
+  );
+  addMappedField(
+    fields,
+    table,
+    [
+      "Last Status Changed By Slack ID",
+      "Status Changed By Slack ID",
+      "Changed By Slack ID",
+      "Changed by Slack ID",
+    ],
+    audit.changedBySlackId,
+  );
+  addMappedField(
+    fields,
+    table,
+    [
+      "Last Status Change At",
+      "Last Status Changed At",
+      "Status Changed At",
+      "Changed At",
+    ],
+    audit.changedAt,
+  );
+  addMappedField(
+    fields,
+    table,
+    ["Audit History"],
+    JSON.stringify(audit.auditHistory),
+  );
+
+  return fields;
+}
+
 function fieldString(fields: Record<string, unknown>, name: string) {
   const value = fields[name];
 
@@ -1045,19 +1107,14 @@ export async function updateAirtableStatus(
   },
   tableHint: AirtableTableHint = {},
 ) {
-  const target = resolveAirtableTableTarget(tableHint);
+  const resolvedTarget = resolveAirtableTableTarget(tableHint);
+  const { target, table } = await tableSchemaForTarget(resolvedTarget);
   const record = await airtableFetch<AirtableRecord>(
     `${tableUrl(target)}/${recordId}`,
     {
       method: "PATCH",
       body: JSON.stringify({
-        fields: {
-          Status: status,
-          "Last Status Changed By": audit.changedBy,
-          "Last Status Changed By Slack ID": audit.changedBySlackId,
-          "Last Status Change At": audit.changedAt,
-          "Audit History": JSON.stringify(audit.auditHistory),
-        },
+        fields: statusUpdateFields(status, audit, table),
       }),
     },
   );
