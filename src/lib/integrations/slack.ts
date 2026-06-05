@@ -180,16 +180,53 @@ function slackLink(url: string, label: string) {
   return url ? `<${url}|${label}>` : label;
 }
 
+function optionalSlackLink(url: string | undefined, label: string) {
+  return url ? `<${url}|${label}>` : "";
+}
+
+function submitterLabel(request: ManufacturingRequest) {
+  if (request.submitterSlackId) {
+    return `<@${request.submitterSlackId}>`;
+  }
+
+  return request.submitter || "Not specified";
+}
+
+function drawingLinkLabel(request: ManufacturingRequest) {
+  const drawingAttachment = request.attachments.find(
+    (attachment) => attachment.kind === "drawing" && attachment.url,
+  );
+
+  if (drawingAttachment?.url) {
+    return slackLink(drawingAttachment.url, drawingAttachment.filename || "Drawing PDF");
+  }
+
+  return optionalSlackLink(request.onshapeDrawingUrl, "Onshape drawing");
+}
+
+function linksLabel(request: ManufacturingRequest) {
+  const links = [
+    optionalSlackLink(request.airtableUrl, "Airtable"),
+    optionalSlackLink(request.onshapePartUrl, "Onshape part"),
+    optionalSlackLink(request.assemblyUrl, "Assembly"),
+    drawingLinkLabel(request),
+  ].filter(Boolean);
+
+  return links.length > 0 ? links.join(" | ") : "No links";
+}
+
 export async function notifyNewSubmission(request: ManufacturingRequest) {
   const ownerMentions = subsystemOwnerMentions(request.subsystem);
   const ownerText =
     ownerMentions.length > 0 ? ownerMentions.join(" ") : "Not configured";
+  const submitterText = submitterLabel(request);
+  const drawingText = drawingLinkLabel(request) || "Not found";
 
   return postSlack({
     webhookUrl: manufacturingWebhookUrl(),
     channelId: manufacturingChannelId(),
     payload: {
-      text: `New manufacturing request: ${request.partName}${
+      text: `New manufacturing request: ${request.partName} submitted by ${request.submitter || "Unknown"}${
         ownerMentions.length > 0 ? ` ${ownerMentions.join(" ")}` : ""
       }`,
       blocks: [
@@ -225,14 +262,19 @@ export async function notifyNewSubmission(request: ManufacturingRequest) {
             },
             {
               type: "mrkdwn",
+              text: `*Owner*\n${submitterText}`,
+            },
+            {
+              type: "mrkdwn",
               text: `*Subsystem owner*\n${ownerText}`,
             },
             {
               type: "mrkdwn",
-              text: `*Links*\n${slackLink(request.airtableUrl ?? "", "Airtable")} | ${slackLink(
-                request.onshapePartUrl,
-                "Onshape",
-              )}`,
+              text: `*Drawing*\n${drawingText}`,
+            },
+            {
+              type: "mrkdwn",
+              text: `*Links*\n${linksLabel(request)}`,
             },
           ],
         },
@@ -265,20 +307,21 @@ export async function notifyStatusChange(input: {
     input.oldStatus === "Unknown"
       ? `${partLabel}: ${input.newStatus}`
       : `${partLabel}: ${input.oldStatus} -> ${input.newStatus}`;
+  const changedByText = input.changedBySlackId
+    ? `<@${input.changedBySlackId}>`
+    : input.changedBy || "Unknown";
 
   return postSlack({
     webhookUrl: statusWebhookUrl(),
     channelId: statusChannelId(),
     payload: {
-      text: plainStatusText,
+      text: `${plainStatusText} changed by ${input.changedBy || "Unknown"} manufacturing`,
       blocks: [
         {
           type: "section",
           text: {
             type: "mrkdwn",
-            text: `${statusText}\nChanged by: ${
-              input.changedBySlackId ? `<@${input.changedBySlackId}>` : input.changedBy
-            }${
+            text: `${statusText}\nChanged by: ${changedByText}\nNotify: manufacturing${
               ownerMentions.length > 0
                 ? `\nSubsystem owner: ${ownerMentions.join(" ")}`
                 : ""
@@ -291,11 +334,13 @@ export async function notifyStatusChange(input: {
 }
 
 export async function notify3DPrintSubmission(request: ManufacturingRequest) {
+  const drawingText = drawingLinkLabel(request) || "Not found";
+
   return postSlack({
     webhookUrl: printWebhookUrl(),
     channelId: printChannelId(),
     payload: {
-      text: `3DP request: ${request.partName}`,
+      text: `3DP request: ${request.partName} submitted by ${request.submitter || "Unknown"}`,
       blocks: [
         {
           type: "header",
@@ -321,6 +366,10 @@ export async function notify3DPrintSubmission(request: ManufacturingRequest) {
             },
             {
               type: "mrkdwn",
+              text: `*Owner*\n${submitterLabel(request)}`,
+            },
+            {
+              type: "mrkdwn",
               text: `*Print Material*\n${request.printMaterial || "Not specified"}`,
             },
             {
@@ -330,6 +379,10 @@ export async function notify3DPrintSubmission(request: ManufacturingRequest) {
             {
               type: "mrkdwn",
               text: `*Priority*\n${request.priority || "Normal"}`,
+            },
+            {
+              type: "mrkdwn",
+              text: `*Drawing*\n${drawingText}`,
             },
           ],
         },
