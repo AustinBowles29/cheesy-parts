@@ -449,7 +449,7 @@ export function OnshapeSubmissionPanel({
   }
 
   return (
-    <main className="min-h-screen overflow-x-hidden bg-[#f7faff] text-[#141515]">
+    <main className="app-scroll-page bg-[#f7faff] text-[#141515]">
       <ToastViewport toasts={toasts} onDismiss={dismissToast} />
       <form
         ref={formRef}

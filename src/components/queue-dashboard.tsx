@@ -615,7 +615,7 @@ export function QueueDashboard({
   }
 
   return (
-    <main className="min-h-screen overflow-x-hidden bg-[#f7faff] text-[#141515]">
+    <main className="app-scroll-page bg-[#f7faff] text-[#141515]">
       <ToastViewport toasts={toasts} onDismiss={dismissToast} />
       <div className="page-transition mx-auto flex w-full max-w-7xl flex-col gap-6 overflow-x-hidden px-4 py-5 sm:px-6 lg:px-8">
         <header className="flex flex-col gap-4 border-b border-[#d8e2f0] pb-5 lg:flex-row lg:items-center lg:justify-between">

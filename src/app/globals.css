@@ -15,9 +15,6 @@
 html {
   max-width: 100%;
   overflow-x: hidden;
-  overflow-y: auto;
-  overscroll-behavior-x: none;
-  overscroll-behavior-y: contain;
 }
 
 body {
@@ -27,16 +24,21 @@ body {
   max-width: 100%;
   min-width: 0;
   overflow-x: hidden;
-  overflow-y: visible;
-  overscroll-behavior-x: none;
-  overscroll-behavior-y: contain;
 }
 
 main {
   max-width: 100%;
   overflow-x: hidden;
+}
+
+.app-scroll-page {
+  height: 100vh;
+  height: 100dvh;
+  overflow-x: hidden;
+  overflow-y: auto;
   overscroll-behavior-x: none;
   overscroll-behavior-y: contain;
+  -webkit-overflow-scrolling: touch;
 }
 
 * {
