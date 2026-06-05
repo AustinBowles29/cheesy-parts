@@ -14,13 +14,22 @@
 
 html,
 body {
+  max-width: 100%;
+  overflow-x: hidden;
   overflow-y: auto;
+  overscroll-behavior: none;
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
   font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
+  min-width: 0;
+}
+
+main {
+  max-width: 100%;
+  overflow-x: hidden;
 }
 
 * {
@@ -147,11 +156,43 @@ textarea {
 
 .scrollable {
   overflow: auto;
+  overscroll-behavior: contain;
   scrollbar-width: none;
 }
 
 .scrollable::-webkit-scrollbar {
   display: none;
+}
+
+.queue-table-scroll {
+  max-width: 100%;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.queue-table {
+  table-layout: fixed;
+}
+
+.queue-table th,
+.queue-table td {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.queue-table input,
+.queue-table select {
+  max-width: 100%;
+  min-width: 0;
+}
+
+.queue-table-actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  max-width: 100%;
 }
 
 @keyframes fadeIn {

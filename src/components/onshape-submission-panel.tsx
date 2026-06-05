@@ -449,13 +449,13 @@ export function OnshapeSubmissionPanel({
   }
 
   return (
-    <main className="min-h-screen bg-[#f7faff] text-[#141515]">
+    <main className="min-h-screen overflow-x-hidden overscroll-none bg-[#f7faff] text-[#141515]">
       <ToastViewport toasts={toasts} onDismiss={dismissToast} />
       <form
         ref={formRef}
         noValidate
         onSubmit={submit}
-        className="page-transition mx-auto flex w-full max-w-6xl flex-col gap-5 px-4 py-5 sm:px-6 lg:px-8"
+        className="page-transition mx-auto flex w-full max-w-6xl flex-col gap-5 overflow-x-hidden px-4 py-5 sm:px-6 lg:px-8"
       >
         <header className="flex flex-col gap-4 border-b border-[#d8e2f0] pb-5 md:flex-row md:items-end md:justify-between">
           <div>

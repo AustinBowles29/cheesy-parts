@@ -615,9 +615,9 @@ export function QueueDashboard({
   }
 
   return (
-    <main className="min-h-screen bg-[#f7faff] text-[#141515]">
+    <main className="min-h-screen overflow-x-hidden overscroll-none bg-[#f7faff] text-[#141515]">
       <ToastViewport toasts={toasts} onDismiss={dismissToast} />
-      <div className="page-transition mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 py-5 sm:px-6 lg:px-8">
+      <div className="page-transition mx-auto flex w-full max-w-7xl flex-col gap-6 overflow-x-hidden px-4 py-5 sm:px-6 lg:px-8">
         <header className="flex flex-col gap-4 border-b border-[#d8e2f0] pb-5 lg:flex-row lg:items-center lg:justify-between">
           <div>
             <p className="text-sm font-semibold uppercase text-[#0b3d91]">
@@ -776,21 +776,33 @@ export function QueueDashboard({
           </div>
         </section>
 
-        <section className="overflow-hidden rounded-lg border border-[#d8e2f0] bg-white">
-          <div className="scrollable overflow-x-auto">
-            <table className="w-full min-w-[1280px] border-collapse text-sm">
+        <section className="max-w-full overflow-hidden rounded-lg border border-[#d8e2f0] bg-white">
+          <div className="scrollable queue-table-scroll">
+            <table className="queue-table w-full border-collapse text-xs sm:text-sm">
+              <colgroup>
+                <col className="w-[16%]" />
+                <col className="w-[9%]" />
+                <col className="w-[4%]" />
+                <col className="w-[8%]" />
+                <col className="w-[11%]" />
+                <col className="w-[7%]" />
+                <col className="w-[14%]" />
+                <col className="w-[8%]" />
+                <col className="w-[10%]" />
+                <col className="w-[13%]" />
+              </colgroup>
               <thead className="bg-[#edf4ff] text-left text-xs uppercase text-[#5c6f8a]">
                 <tr>
-                  <th className="px-3 py-3">Part</th>
-                  <th className="px-3 py-3">Part Number</th>
-                  <th className="px-3 py-3">Qty</th>
-                  <th className="px-3 py-3">Subsystem</th>
-                  <th className="px-3 py-3">Material</th>
-                  <th className="px-3 py-3">Machine</th>
-                  <th className="px-3 py-3">Status</th>
-                  <th className="px-3 py-3">Table</th>
-                  <th className="px-3 py-3">Spares</th>
-                  <th className="px-3 py-3">Links</th>
+                  <th className="px-1 py-3 sm:px-3">Part</th>
+                  <th className="px-1 py-3 sm:px-3">Part Number</th>
+                  <th className="px-1 py-3 sm:px-3">Qty</th>
+                  <th className="px-1 py-3 sm:px-3">Subsystem</th>
+                  <th className="px-1 py-3 sm:px-3">Material</th>
+                  <th className="px-1 py-3 sm:px-3">Machine</th>
+                  <th className="px-1 py-3 sm:px-3">Status</th>
+                  <th className="px-1 py-3 sm:px-3">Table</th>
+                  <th className="px-1 py-3 sm:px-3">Spares</th>
+                  <th className="px-1 py-3 sm:px-3">Links</th>
                 </tr>
               </thead>
               <tbody>
@@ -802,10 +814,10 @@ export function QueueDashboard({
                       key={request.id}
                       className="border-t border-[#d8e2f0] align-top"
                     >
-                    <td className="px-3 py-3">
+                    <td className="px-1 py-3 sm:px-3">
                       <div className="font-medium">{request.partName}</div>
                       {request.notes && (
-                        <div className="mt-1 max-w-56 text-xs text-[#5c6f8a]">
+                        <div className="mt-1 text-xs text-[#5c6f8a]">
                           {request.notes}
                         </div>
                       )}
@@ -813,17 +825,21 @@ export function QueueDashboard({
                         {request.submitter || "Unknown submitter"}
                       </div>
                     </td>
-                    <td className="px-3 py-3">{request.partNumber || "-"}</td>
-                    <td className="px-3 py-3">{request.quantity}</td>
-                    <td className="px-3 py-3">{request.subsystem || "-"}</td>
-                    <td className="px-3 py-3">
+                    <td className="px-1 py-3 sm:px-3">
+                      {request.partNumber || "-"}
+                    </td>
+                    <td className="px-1 py-3 sm:px-3">{request.quantity}</td>
+                    <td className="px-1 py-3 sm:px-3">
+                      {request.subsystem || "-"}
+                    </td>
+                    <td className="px-1 py-3 sm:px-3">
                       <div>{request.material || "-"}</div>
                       <div className="mt-1 text-xs text-[#586158]">
                         {request.thickness || "No thickness"}
                       </div>
                     </td>
-                    <td className="px-3 py-3">{request.machineType}</td>
-                    <td className="px-3 py-3">
+                    <td className="px-1 py-3 sm:px-3">{request.machineType}</td>
+                    <td className="px-1 py-3 sm:px-3">
                       <select
                         value={coerceStatus(request.status)}
                         onChange={(event) =>
@@ -832,7 +848,7 @@ export function QueueDashboard({
                             event.target.value as ManufacturingStatus,
                           )
                         }
-                        className={`h-9 rounded-md border-0 px-2 text-xs font-semibold ${statusTone(
+                        className={`h-9 w-full min-w-0 rounded-md border-0 px-1 text-xs font-semibold ${statusTone(
                           request.status,
                         )}`}
                       >
@@ -843,13 +859,13 @@ export function QueueDashboard({
                         ))}
                       </select>
                     </td>
-                    <td className="px-3 py-3 text-xs text-[#5c6f8a]">
+                    <td className="px-1 py-3 text-xs text-[#5c6f8a] sm:px-3">
                       {request.airtableTableName ||
                         request.airtableTableId ||
                         "-"}
                     </td>
-                    <td className="px-3 py-3">
-                      <div className="flex items-center gap-2">
+                    <td className="px-1 py-3 sm:px-3">
+                      <div className="queue-table-actions">
                         <input
                           aria-label="Set spare quantity"
                           title="Set spare quantity"
@@ -862,21 +878,21 @@ export function QueueDashboard({
                               [request.id]: event.target.value,
                             }))
                           }
-                          className="h-9 w-16 rounded-md border border-[#b8c9e3] px-2"
+                          className="h-9 w-full max-w-16 min-w-0 rounded-md border border-[#b8c9e3] px-1"
                         />
                         <button
                           type="button"
                           title="Make spares"
                           aria-label="Make spares"
                           onClick={() => createSpares(request)}
-                          className="icon-action inline-flex h-9 w-9 items-center justify-center rounded-md border border-[#b8c9e3] hover:bg-[#edf4ff]"
+                          className="icon-action inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-[#b8c9e3] hover:bg-[#edf4ff] sm:h-9 sm:w-9"
                         >
                           <CopyPlus size={16} aria-hidden="true" />
                         </button>
                       </div>
                     </td>
-                    <td className="px-3 py-3">
-                      <div className="flex gap-2">
+                    <td className="px-1 py-3 sm:px-3">
+                      <div className="queue-table-actions">
                         <LinkButton
                           href={request.onshapePartUrl}
                           title="Open Onshape part"
@@ -903,7 +919,7 @@ export function QueueDashboard({
                           aria-label={`Delete ${request.partNumber || request.partName}`}
                           onClick={() => deleteRequest(request)}
                           disabled={deletingIds.has(request.id)}
-                          className="icon-action inline-flex h-9 w-9 items-center justify-center rounded-md border border-[#b8c9e3] text-[#5c6f8a] hover:border-[#dc2626] hover:bg-[#fef2f2] hover:text-[#b91c1c] disabled:cursor-not-allowed disabled:opacity-50"
+                          className="icon-action inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-[#b8c9e3] text-[#5c6f8a] hover:border-[#dc2626] hover:bg-[#fef2f2] hover:text-[#b91c1c] disabled:cursor-not-allowed disabled:opacity-50 sm:h-9 sm:w-9"
                         >
                           <Trash2 size={16} aria-hidden="true" />
                         </button>
@@ -916,7 +932,7 @@ export function QueueDashboard({
                   <tr>
                     <td
                       colSpan={10}
-                      className="px-3 py-10 text-center text-sm text-[#586158]"
+                      className="px-1 py-10 text-center text-sm text-[#586158] sm:px-3"
                     >
                       No manufacturing requests match the current filters.
                     </td>
@@ -1014,7 +1030,7 @@ function LinkButton({
       <span
         title={`${title} unavailable`}
         aria-label={`${title} unavailable`}
-        className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-[#d8e2f0] text-[#9aa9bc]"
+        className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-[#d8e2f0] text-[#9aa9bc] sm:h-9 sm:w-9"
       >
         {icon}
       </span>
@@ -1028,7 +1044,7 @@ function LinkButton({
       rel="noreferrer"
       title={title}
       aria-label={title}
-      className="icon-action inline-flex h-9 w-9 items-center justify-center rounded-md border border-[#b8c9e3] hover:bg-[#edf4ff]"
+      className="icon-action inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-[#b8c9e3] hover:bg-[#edf4ff] sm:h-9 sm:w-9"
     >
       {icon}
     </a>
