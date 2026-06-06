@@ -152,13 +152,22 @@ export function onshapeOAuthStartUrl(returnTo: string) {
   return `${url.pathname}${url.search}`;
 }
 
+function normalizeCompanyId(value: string | undefined) {
+  const companyId = normalizeString(value);
+  if (!companyId || companyId === "cad" || /^\{\$[^}]+\}$/.test(companyId)) {
+    return "";
+  }
+
+  return companyId;
+}
+
 export function buildOnshapeAuthorizationUrl(
   state: string,
   options: { companyId?: string } = {},
 ) {
   const id = clientId();
   const callback = redirectUri();
-  const companyId = normalizeString(
+  const companyId = normalizeCompanyId(
     options.companyId ?? process.env.ONSHAPE_COMPANY_ID,
   );
 
