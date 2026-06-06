@@ -152,9 +152,15 @@ export function onshapeOAuthStartUrl(returnTo: string) {
   return `${url.pathname}${url.search}`;
 }
 
-export function buildOnshapeAuthorizationUrl(state: string) {
+export function buildOnshapeAuthorizationUrl(
+  state: string,
+  options: { companyId?: string } = {},
+) {
   const id = clientId();
   const callback = redirectUri();
+  const companyId = normalizeString(
+    options.companyId ?? process.env.ONSHAPE_COMPANY_ID,
+  );
 
   if (!id || !callback) {
     throw new Error("Onshape OAuth is not configured.");
@@ -165,6 +171,9 @@ export function buildOnshapeAuthorizationUrl(state: string) {
   url.searchParams.set("client_id", id);
   url.searchParams.set("redirect_uri", callback);
   url.searchParams.set("state", state);
+  if (companyId && companyId !== "cad") {
+    url.searchParams.set("company_id", companyId);
+  }
   return url;
 }
 

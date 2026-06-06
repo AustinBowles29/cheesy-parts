@@ -17,8 +17,15 @@ export async function GET(req: Request) {
   const returnTo = url.searchParams.get("returnTo");
   const safeReturnTo = isSafeReturnTo(returnTo) ? (returnTo as string) : "/onshape";
   const state = crypto.randomUUID();
+  const returnToUrl = new URL(safeReturnTo, url.origin);
+  const companyId =
+    returnToUrl.searchParams.get("companyId") ??
+    returnToUrl.searchParams.get("company_id") ??
+    url.searchParams.get("companyId") ??
+    url.searchParams.get("company_id") ??
+    undefined;
 
   await setOnshapeOAuthState(state, safeReturnTo);
 
-  return NextResponse.redirect(buildOnshapeAuthorizationUrl(state));
+  return NextResponse.redirect(buildOnshapeAuthorizationUrl(state, { companyId }));
 }
