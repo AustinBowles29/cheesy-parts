@@ -34,6 +34,7 @@ export function OnshapeSubmissionPanelLoader({
       try {
         const response = await fetch(panelDataUrl, {
           cache: "no-store",
+          credentials: "include",
           signal: abortController.signal,
         });
         const body = await response.json();
