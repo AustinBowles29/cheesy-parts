@@ -83,12 +83,6 @@ function toastForWarning(warning: string) {
   };
 }
 
-function initialToasts(...warnings: Array<string | undefined>) {
-  return warnings
-    .filter((warning): warning is string => Boolean(warning))
-    .map((warning) => toastForWarning(warning));
-}
-
 function dropdownInitialValue(value: string | undefined, options: string[]) {
   const trimmed = value?.trim() ?? "";
   if (!trimmed || options.length === 0) {
@@ -214,11 +208,19 @@ export function OnshapeSubmissionPanel({
     status: "idle",
   });
   const [invalidFields, setInvalidFields] = useState<Set<string>>(new Set());
+  const warningMessages = useMemo(
+    () =>
+      [onshapeAuthUrl ? undefined : onshapeWarning, fieldOptions.warning].filter(
+        (warning): warning is string => Boolean(warning),
+      ),
+    [fieldOptions.warning, onshapeAuthUrl, onshapeWarning],
+  );
+  const shownWarningToastsRef = useRef<Set<string> | null>(null);
+  if (shownWarningToastsRef.current === null) {
+    shownWarningToastsRef.current = new Set(warningMessages);
+  }
   const { toasts, addToast, dismissToast } = useToasts(
-    initialToasts(
-      onshapeAuthUrl ? undefined : onshapeWarning,
-      fieldOptions.warning,
-    ),
+    warningMessages.map((warning) => toastForWarning(warning)),
   );
 
   useEffect(() => {
@@ -289,6 +291,20 @@ export function OnshapeSubmissionPanel({
     machineOptions,
     selectedContextKey,
   ]);
+
+  useEffect(() => {
+    const shownWarningToasts = shownWarningToastsRef.current;
+    if (!shownWarningToasts) {
+      return;
+    }
+
+    for (const warning of warningMessages) {
+      if (!shownWarningToasts.has(warning)) {
+        addToast(toastForWarning(warning));
+        shownWarningToasts.add(warning);
+      }
+    }
+  }, [addToast, warningMessages]);
 
   const inferredMachineType = useMemo(
     () => deriveMachineType({ material, thickness, partName, hasDrawing }),

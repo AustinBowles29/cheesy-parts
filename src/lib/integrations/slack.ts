@@ -50,6 +50,23 @@ function printChannelId() {
   return process.env.SLACK_3DP_CHANNEL_ID ?? manufacturingChannelId();
 }
 
+function manufacturingUsergroupMention() {
+  const usergroupId = normalizeString(process.env.SLACK_MANUFACTURING_USERGROUP_ID)
+    .split(",")[0]
+    ?.replace(/^<!subteam\^/, "")
+    .replace(/\|[^>]+>$/, "")
+    .replace(/>$/, "");
+  const handle = normalizeString(process.env.SLACK_MANUFACTURING_USERGROUP_HANDLE)
+    .split(",")[0]
+    ?.replace(/^@/, "");
+
+  if (usergroupId) {
+    return `<!subteam^${usergroupId}${handle ? `|${handle}` : ""}>`;
+  }
+
+  return handle ? `@${handle}` : "manufacturing";
+}
+
 function subsystemOwnerMapRaw() {
   return (
     process.env.SUBSYSTEM_OWNER_SLACK_IDS ??
@@ -306,12 +323,13 @@ export async function notifyNewSubmission(request: ManufacturingRequest) {
     ownerMentions.length > 0 ? ownerMentions.join(" ") : "Not configured";
   const submitterText = await submitterLabel(request);
   const drawingText = drawingLinksLabel(request);
+  const manufacturingMention = manufacturingUsergroupMention();
 
   return postSlack({
     webhookUrl: manufacturingWebhookUrl(),
     channelId: manufacturingChannelId(),
     payload: {
-      text: `New manufacturing request: ${request.partName} submitted by ${request.submitter || "Unknown"} manufacturing${
+      text: `New manufacturing request: ${request.partName} submitted by ${request.submitter || "Unknown"} ${manufacturingMention}${
         ownerMentions.length > 0 ? ` ${ownerMentions.join(" ")}` : ""
       }`,
       blocks: [
@@ -326,7 +344,7 @@ export async function notifyNewSubmission(request: ManufacturingRequest) {
           type: "section",
           text: {
             type: "mrkdwn",
-            text: "Notify: manufacturing",
+            text: `Notify: ${manufacturingMention}`,
           },
         },
         {
