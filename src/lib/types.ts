@@ -111,6 +111,7 @@ export interface SubmissionInput {
   onshapeDrawingUrl?: string;
   onshapeDrawingElementId?: string;
   onshapeDocumentId?: string;
+  onshapeServer?: string;
   onshapeWvm?: string;
   onshapeWvmId?: string;
   assemblyUrl?: string;

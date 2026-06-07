@@ -877,6 +877,13 @@ export function OnshapeSubmissionPanel({
                     value={defaults.onshapeDocumentId}
                   />
                 )}
+                {defaults.onshapeServer && (
+                  <input
+                    type="hidden"
+                    name="onshapeServer"
+                    value={defaults.onshapeServer}
+                  />
+                )}
                 {defaults.onshapeWvm && (
                   <input
                     type="hidden"

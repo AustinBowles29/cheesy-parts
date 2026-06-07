@@ -91,6 +91,7 @@ export interface OnshapeContext {
   elementId: string;
   assemblyElementId?: string;
   partId: string;
+  server?: string;
 }
 
 export interface OnshapeMetadataResult {
@@ -129,6 +130,30 @@ function tokenUrl() {
 
 function apiBaseUrl() {
   return (process.env.ONSHAPE_API_BASE_URL ?? defaultApiBaseUrl).replace(/\/$/, "");
+}
+
+export function normalizeOnshapeServer(value: string | undefined) {
+  const server = normalizeString(value);
+  if (!server || /^\{\$[^}]+\}$/.test(server)) {
+    return "";
+  }
+
+  try {
+    const url = new URL(server.startsWith("http") ? server : `https://${server}`);
+    const hostname = url.hostname.toLowerCase();
+    if (hostname !== "onshape.com" && !hostname.endsWith(".onshape.com")) {
+      return "";
+    }
+
+    return url.origin.replace(/\/$/, "");
+  } catch {
+    return "";
+  }
+}
+
+function apiBaseUrlForServer(server?: string) {
+  const onshapeServer = normalizeOnshapeServer(server);
+  return onshapeServer ? `${onshapeServer}/api` : apiBaseUrl();
 }
 
 function oauthScopes() {
@@ -383,7 +408,7 @@ function nestedUserProfile(profile: OnshapeUserProfile): OnshapeUserProfile {
   return profile.user ?? profile.profile ?? profile._json ?? profile.json ?? profile;
 }
 
-async function fetchOnshapeUserProfile(accessToken: string) {
+async function fetchOnshapeUserProfile(accessToken: string, server?: string) {
   for (const path of [
     "/users/sessioninfo",
     "/users/current",
@@ -393,6 +418,7 @@ async function fetchOnshapeUserProfile(accessToken: string) {
       const profile = await onshapeFetchJson<OnshapeUserProfile>(
         path,
         accessToken,
+        server,
       );
       const user = onshapeUserFromProfile(nestedUserProfile(profile));
       if (user) {
@@ -406,7 +432,9 @@ async function fetchOnshapeUserProfile(accessToken: string) {
   return undefined;
 }
 
-export async function fetchOnshapeCurrentUser(): Promise<OnshapeUserResult> {
+export async function fetchOnshapeCurrentUser(
+  options: { server?: string } = {},
+): Promise<OnshapeUserResult> {
   if (!isOnshapeOAuthConfigured()) {
     return { defaults: {} };
   }
@@ -417,7 +445,7 @@ export async function fetchOnshapeCurrentUser(): Promise<OnshapeUserResult> {
   }
 
   try {
-    const user = await fetchOnshapeUserProfile(accessToken);
+    const user = await fetchOnshapeUserProfile(accessToken, options.server);
     return {
       defaults: {
         submitter: user?.displayName,
@@ -452,6 +480,9 @@ export function onshapeContextFromParams(
   const assemblyElementId =
     firstParam(params.assemblyElementId) ?? firstParam(params.aeid);
   const partId = firstParam(params.partId) ?? firstParam(params.pid);
+  const server = normalizeOnshapeServer(
+    firstParam(params.server) ?? firstParam(params.onshapeServer),
+  );
   const wvmId = workspaceId ?? versionId ?? microversionId;
 
   if (!documentId || !wvmId || !elementId) {
@@ -463,6 +494,7 @@ export function onshapeContextFromParams(
     assemblyElementId,
     elementId,
     partId: partId ?? "",
+    server: server || undefined,
     wvm: versionId ? "v" : microversionId ? "m" : "w",
     wvmId,
   };
@@ -932,7 +964,7 @@ async function fetchBom(
   elementId: string,
 ): Promise<unknown> {
   const endpoint = `/v10/assemblies/d/${context.documentId}/${context.wvm}/${context.wvmId}/e/${elementId}/bom`;
-  return onshapeFetchJson<unknown>(endpoint, accessToken);
+  return onshapeFetchJson<unknown>(endpoint, accessToken, context.server);
 }
 
 async function fetchBomPartNumber(input: {
@@ -1020,11 +1052,16 @@ async function fetchDocumentElements(
   return onshapeFetchJson<OnshapeElement[]>(
     `/v10/documents/d/${context.documentId}/${context.wvm}/${context.wvmId}/elements`,
     accessToken,
+    context.server,
   );
 }
 
-async function onshapeFetchJson<T>(path: string, accessToken: string) {
-  const response = await fetch(`${apiBaseUrl()}${path}`, {
+async function onshapeFetchJson<T>(
+  path: string,
+  accessToken: string,
+  server?: string,
+) {
+  const response = await fetch(`${apiBaseUrlForServer(server)}${path}`, {
     headers: {
       Accept: "application/json;charset=UTF-8; qs=0.09",
       Authorization: `Bearer ${accessToken}`,
@@ -1043,8 +1080,9 @@ async function onshapePostJson<T>(
   path: string,
   accessToken: string,
   body: Record<string, unknown>,
+  server?: string,
 ) {
-  const response = await fetch(`${apiBaseUrl()}${path}`, {
+  const response = await fetch(`${apiBaseUrlForServer(server)}${path}`, {
     method: "POST",
     headers: {
       Accept: "application/json;charset=UTF-8; qs=0.09",
@@ -1062,8 +1100,12 @@ async function onshapePostJson<T>(
   return (await response.json()) as T;
 }
 
-async function onshapeFetchBytes(path: string, accessToken: string) {
-  const response = await fetch(`${apiBaseUrl()}${path}`, {
+async function onshapeFetchBytes(
+  path: string,
+  accessToken: string,
+  server?: string,
+) {
+  const response = await fetch(`${apiBaseUrlForServer(server)}${path}`, {
     headers: {
       Accept: "application/octet-stream",
       Authorization: `Bearer ${accessToken}`,
@@ -1094,7 +1136,8 @@ function isDrawingElement(element: OnshapeElement) {
 }
 
 function onshapeElementUrl(context: OnshapeContext, elementId: string) {
-  return `https://cad.onshape.com/documents/${context.documentId}/${context.wvm}/${context.wvmId}/e/${elementId}`;
+  const server = context.server || "https://cad.onshape.com";
+  return `${server}/documents/${context.documentId}/${context.wvm}/${context.wvmId}/e/${elementId}`;
 }
 
 function collectStringValuesByKeys(
@@ -1186,6 +1229,7 @@ async function fetchDrawingViews(
   return onshapeFetchJson<unknown>(
     `/v8/drawings/d/${context.documentId}/${context.wvm}/${context.wvmId}/e/${drawingElementId}/views`,
     accessToken,
+    context.server,
   );
 }
 
@@ -1267,11 +1311,13 @@ function sleep(ms: number) {
 async function waitForTranslation(
   translationId: string,
   accessToken: string,
+  server?: string,
 ): Promise<OnshapeTranslationResponse> {
   for (let attempt = 0; attempt < 8; attempt += 1) {
     const translation = await onshapeFetchJson<OnshapeTranslationResponse>(
       `/v9/translations/${translationId}`,
       accessToken,
+      server,
     );
     const state = normalizeString(translation.requestState).toUpperCase();
 
@@ -1297,6 +1343,7 @@ async function exportDrawingPdf(input: {
   wvm: string;
   wvmId: string;
   drawingElementId: string;
+  server?: string;
 }) {
   const translation = await onshapePostJson<OnshapeTranslationResponse>(
     `/v6/drawings/d/${input.documentId}/${input.wvm}/${input.wvmId}/e/${input.drawingElementId}/translations`,
@@ -1305,13 +1352,19 @@ async function exportDrawingPdf(input: {
       formatName: "PDF",
       storeInDocument: false,
     },
+    input.server,
   );
-  const finished = await waitForTranslation(translation.id, input.accessToken);
+  const finished = await waitForTranslation(
+    translation.id,
+    input.accessToken,
+    input.server,
+  );
   const externalDataId = firstTranslationResultId(finished.resultExternalDataIds);
   if (externalDataId) {
     return onshapeFetchBytes(
       `/v6/documents/d/${input.documentId}/externaldata/${externalDataId}`,
       input.accessToken,
+      input.server,
     );
   }
 
@@ -1320,6 +1373,7 @@ async function exportDrawingPdf(input: {
     return onshapeFetchBytes(
       `/v6/blobelements/d/${input.documentId}/${input.wvm}/${input.wvmId}/e/${resultElementId}`,
       input.accessToken,
+      input.server,
     );
   }
 
@@ -1334,6 +1388,7 @@ export async function createOnshapeDrawingPdfAttachment(
   const documentId = normalizeString(input.onshapeDocumentId);
   const wvm = normalizeString(input.onshapeWvm);
   const wvmId = normalizeString(input.onshapeWvmId);
+  const server = normalizeOnshapeServer(input.onshapeServer);
 
   if (!drawingElementId || !documentId || !wvm || !wvmId) {
     return null;
@@ -1350,6 +1405,7 @@ export async function createOnshapeDrawingPdfAttachment(
     wvm,
     wvmId,
     drawingElementId,
+    server: server || undefined,
   });
   const filenameBase =
     normalizeString(input.partNumber) ||
@@ -1480,6 +1536,7 @@ export async function fetchOnshapePartMetadata(
     const parts = await onshapeFetchJson<OnshapePart[]>(
       `/v6/parts/d/${context.documentId}/${context.wvm}/${context.wvmId}?${query}`,
       accessToken,
+      context.server,
     );
     const part =
       parts.find((item) => item.partId === context.partId) ??
@@ -1491,6 +1548,7 @@ export async function fetchOnshapePartMetadata(
         metadata = await onshapeFetchJson<OnshapeMetadata>(
           `/v10/metadata/d/${context.documentId}/${context.wvm}/${context.wvmId}/e/${context.elementId}/p/${part.partId}`,
           accessToken,
+          context.server,
         );
       } catch {
         metadata = null;
@@ -1536,6 +1594,7 @@ export async function fetchOnshapePartMetadata(
       defaults.onshapeDrawingElementId = drawingElementId;
       defaults.onshapeDrawingUrl = onshapeElementUrl(context, drawingElementId);
       defaults.onshapeDocumentId = context.documentId;
+      defaults.onshapeServer = context.server;
       defaults.onshapeWvm = context.wvm;
       defaults.onshapeWvmId = context.wvmId;
     }

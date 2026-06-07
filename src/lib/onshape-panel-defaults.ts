@@ -2,6 +2,7 @@ import { getAirtableSubmissionFieldOptions } from "@/lib/integrations/airtable";
 import {
   fetchOnshapeCurrentUser,
   fetchOnshapePartMetadata,
+  normalizeOnshapeServer,
   onshapeContextFromParams,
 } from "@/lib/integrations/onshape";
 import {
@@ -84,8 +85,11 @@ function buildOnshapeUrl(
   }
 
   const workspaceSegment = versionId ? "v" : "w";
+  const server =
+    normalizeOnshapeServer(firstPanelParam(params.server)) ||
+    "https://cad.onshape.com";
   const url = new URL(
-    `https://cad.onshape.com/documents/${documentId}/${workspaceSegment}/${workspaceOrVersionTarget}/e/${elementId}`,
+    `${server}/documents/${documentId}/${workspaceSegment}/${workspaceOrVersionTarget}/e/${elementId}`,
   );
 
   if (partId) {
@@ -106,6 +110,8 @@ export function defaultsFromPanelParams(
   params: Record<string, string | string[] | undefined>,
 ): SubmissionInput {
   const context = onshapeContextFromParams(params, firstPanelParam);
+  const onshapeServer =
+    normalizeOnshapeServer(firstPanelParam(params.server)) || undefined;
   const partName =
     firstPanelParam(params.partName) ??
     firstPanelParam(params.name) ??
@@ -156,6 +162,7 @@ export function defaultsFromPanelParams(
     onshapeDrawingUrl,
     onshapeDrawingElementId: drawingElementId,
     onshapeDocumentId: context?.documentId,
+    onshapeServer: context?.server ?? onshapeServer,
     onshapeWvm: context?.wvm,
     onshapeWvmId: context?.wvmId,
     assemblyUrl,
@@ -218,6 +225,7 @@ export function mergeAutofillDefaults(
       defaults.onshapeDrawingElementId || autofill.onshapeDrawingElementId,
     onshapeDocumentId:
       defaults.onshapeDocumentId || autofill.onshapeDocumentId,
+    onshapeServer: defaults.onshapeServer || autofill.onshapeServer,
     onshapeWvm: defaults.onshapeWvm || autofill.onshapeWvm,
     onshapeWvmId: defaults.onshapeWvmId || autofill.onshapeWvmId,
     assemblyUrl: defaults.assemblyUrl || autofill.assemblyUrl,
@@ -241,8 +249,10 @@ export function mergeAutofillDefaults(
 export async function loadOnshapePanelData(
   params: Record<string, string | string[] | undefined>,
 ) {
+  const onshapeServer =
+    normalizeOnshapeServer(firstPanelParam(params.server)) || undefined;
   const [onshapeUser, onshapeMetadata, fieldOptions] = await Promise.all([
-    fetchOnshapeCurrentUser(),
+    fetchOnshapeCurrentUser({ server: onshapeServer }),
     fetchOnshapePartMetadata(
       onshapeContextFromParams(params, firstPanelParam),
       `/onshape${panelParamsToQueryString(params)}`,
