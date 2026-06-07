@@ -28,6 +28,20 @@ function formDataToInput(
   return input;
 }
 
+function drawingPdfWarning(error: unknown) {
+  const message =
+    error instanceof Error ? error.message : "Onshape drawing PDF export failed.";
+
+  if (message.includes("failed (403)")) {
+    return [
+      "Onshape drawing link was saved, but the PDF could not be exported.",
+      "The Onshape OAuth app likely needs document write/export permission and the user must reauthorize.",
+    ].join(" ");
+  }
+
+  return `Onshape drawing PDF could not be attached: ${message}`;
+}
+
 export async function POST(req: Request) {
   try {
     const contentType = req.headers.get("content-type") ?? "";
@@ -53,11 +67,7 @@ export async function POST(req: Request) {
           input.attachments = [...(input.attachments ?? []), drawingAttachment];
         }
       } catch (error) {
-        warnings.push(
-          error instanceof Error
-            ? `Onshape drawing PDF could not be attached: ${error.message}`
-            : "Onshape drawing PDF could not be attached.",
-        );
+        warnings.push(drawingPdfWarning(error));
       }
     }
 

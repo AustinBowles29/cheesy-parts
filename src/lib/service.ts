@@ -308,6 +308,8 @@ export async function changeManufacturingStatus(input: {
     updated = {
       ...updated,
       ...airtableUpdated,
+      slackChannelId: airtableUpdated.slackChannelId ?? updated.slackChannelId,
+      slackMessageTs: airtableUpdated.slackMessageTs ?? updated.slackMessageTs,
       auditHistory: updated.auditHistory,
     };
   }
@@ -386,6 +388,8 @@ export async function syncAirtableStatusChange(input: {
   ];
   const updated: ManufacturingRequest = {
     ...latest,
+    slackChannelId: latest.slackChannelId ?? previous?.slackChannelId,
+    slackMessageTs: latest.slackMessageTs ?? previous?.slackMessageTs,
     status: newStatus,
     auditHistory,
   };

@@ -156,10 +156,8 @@ function machineUsergroupMention(machineType: ManufacturingRequest["machineType"
 }
 
 function newSubmissionMentions(request: ManufacturingRequest) {
-  return [
-    manufacturingUsergroupMention(),
-    machineUsergroupMention(request.machineType),
-  ].filter(Boolean);
+  const machineMention = machineUsergroupMention(request.machineType);
+  return [machineMention || manufacturingUsergroupMention()].filter(Boolean);
 }
 
 function subsystemOwnerMapRaw() {
