@@ -1,6 +1,11 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import {
+  readCachedOnshapePanelData,
+  rememberCurrentOnshapeSubmitHref,
+  rememberOnshapePanelData,
+} from "@/lib/onshape-panel-session";
 import type { SubmissionFieldOptions, SubmissionInput } from "@/lib/types";
 import { OnshapeSubmissionPanel } from "./onshape-submission-panel";
 
@@ -137,10 +142,21 @@ export function OnshapeSubmissionPanelLoader({
   panelDataUrl,
 }: OnshapeSubmissionPanelLoaderProps) {
   const [panelAccessToken, setPanelAccessToken] = useState(storedAccessToken);
-  const [panelData, setPanelData] = useState<PanelData>({
-    defaults: initialDefaults,
-    fieldOptions: initialFieldOptions,
+  const [panelData, setPanelData] = useState<PanelData>(() => {
+    const cachedPanelData = readCachedOnshapePanelData(panelDataUrl);
+
+    return {
+      defaults: mergeDefaults(
+        initialDefaults,
+        cachedPanelData?.defaults,
+      ),
+      fieldOptions: cachedPanelData?.fieldOptions ?? initialFieldOptions,
+    };
   });
+
+  useEffect(() => {
+    rememberCurrentOnshapeSubmitHref();
+  }, []);
 
   useEffect(() => {
     function applyAccessToken(accessToken: string, expiresAt: string) {
@@ -200,18 +216,27 @@ export function OnshapeSubmissionPanelLoader({
           body.defaults?.onshapeDrawingUrl ||
           body.defaults?.submitter,
       );
-      setPanelData((current) => ({
-        defaults: mergeDefaults(current.defaults, body.defaults),
-        fieldOptions: hasFieldOptions(body.fieldOptions)
-          ? body.fieldOptions
-          : current.fieldOptions,
-        onshapeAuthUrl: hasOnshapeDefaults
-          ? undefined
-          : body.onshapeAuthUrl ?? current.onshapeAuthUrl,
-        onshapeWarning: hasOnshapeDefaults
-          ? undefined
-          : body.onshapeWarning ?? current.onshapeWarning,
-      }));
+      setPanelData((current) => {
+        const nextPanelData = {
+          defaults: mergeDefaults(current.defaults, body.defaults),
+          fieldOptions: hasFieldOptions(body.fieldOptions)
+            ? body.fieldOptions
+            : current.fieldOptions,
+          onshapeAuthUrl: hasOnshapeDefaults
+            ? undefined
+            : body.onshapeAuthUrl ?? current.onshapeAuthUrl,
+          onshapeWarning: hasOnshapeDefaults
+            ? undefined
+            : body.onshapeWarning ?? current.onshapeWarning,
+        };
+
+        rememberOnshapePanelData(panelDataUrl, {
+          defaults: nextPanelData.defaults,
+          fieldOptions: nextPanelData.fieldOptions,
+        });
+
+        return nextPanelData;
+      });
     }
 
     async function loadPanelData(mode: string) {

@@ -22,6 +22,7 @@ import {
 } from "react";
 import { MACHINE_TYPES, STATUSES } from "@/lib/constants";
 import { coerceStatus } from "@/lib/manufacturing";
+import { currentOnshapeSubmitHref } from "@/lib/onshape-panel-session";
 import type {
   ManufacturingRequest,
   ManufacturingStatus,
@@ -211,6 +212,7 @@ export function QueueDashboard({
   );
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [filters, setFilters] = useState<Filters>(emptyFilters);
+  const [submitPartHref, setSubmitPartHref] = useState("/onshape");
   const refreshInFlightRef = useRef(false);
   const mutationCountRef = useRef(0);
   const manufacturingUsers = useMemo(
@@ -244,6 +246,17 @@ export function QueueDashboard({
   const actingUser =
     manufacturingUsers.find((user) => user.slackUserId === actingUserId) ??
     manufacturingUsers[0];
+
+  useEffect(() => {
+    const timeoutId = window.setTimeout(() => {
+      const href = currentOnshapeSubmitHref();
+      if (href) {
+        setSubmitPartHref(href);
+      }
+    }, 0);
+
+    return () => window.clearTimeout(timeoutId);
+  }, []);
 
   const options = useMemo(
     () => ({
@@ -663,7 +676,7 @@ export function QueueDashboard({
               Refresh
             </button>
             <Link
-              href="/onshape"
+              href={submitPartHref}
               className="interactive inline-flex h-10 items-center justify-center gap-2 rounded-md bg-[#0b3d91] px-3 text-sm font-semibold text-white hover:bg-[#082f6f]"
             >
               <Boxes size={17} aria-hidden="true" />
