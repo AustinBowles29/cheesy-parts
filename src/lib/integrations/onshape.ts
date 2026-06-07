@@ -1108,6 +1108,41 @@ function onshapeElementUrl(context: OnshapeContext, elementId: string) {
   return `${server}/documents/${context.documentId}/${context.wvm}/${context.wvmId}/e/${elementId}`;
 }
 
+function collectStringValues(value: unknown, results = new Set<string>()) {
+  if (typeof value === "string") {
+    const text = normalizeString(value);
+    if (text) {
+      results.add(text);
+    }
+
+    return results;
+  }
+
+  if (typeof value === "number") {
+    results.add(String(value));
+    return results;
+  }
+
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      collectStringValues(item, results);
+    }
+
+    return results;
+  }
+
+  const record = asRecord(value);
+  if (!record) {
+    return results;
+  }
+
+  for (const item of Object.values(record)) {
+    collectStringValues(item, results);
+  }
+
+  return results;
+}
+
 function collectStringValuesByKeys(
   value: unknown,
   keys: Set<string>,
@@ -1133,10 +1168,7 @@ function collectStringValuesByKeys(
   for (const [key, item] of Object.entries(record)) {
     const normalizedKey = normalizedPropertyKey(key);
     if (keys.has(normalizedKey)) {
-      const text = normalizeString(item);
-      if (text) {
-        results.add(text);
-      }
+      collectStringValues(item, results);
     }
 
     collectStringValuesByKeys(item, keys, results);
@@ -1161,32 +1193,103 @@ function drawingElementNameMatches(
     .some((value) => drawingName === value);
 }
 
-function drawingViewsOnlyReferenceSelectedPart(input: {
+function drawingElementNameScore(
+  element: OnshapeElement,
+  partName: string,
+  partNumber: string,
+) {
+  const drawingName = normalizedComparable(normalizeString(element.name));
+  if (!drawingName) {
+    return 0;
+  }
+
+  const normalizedPartNumber = normalizedComparable(partNumber);
+  const normalizedPartName = normalizedComparable(partName);
+
+  if (normalizedPartNumber && drawingName === normalizedPartNumber) {
+    return 90;
+  }
+
+  if (normalizedPartName && drawingName === normalizedPartName) {
+    return 85;
+  }
+
+  if (normalizedPartNumber && drawingName.includes(normalizedPartNumber)) {
+    return 75;
+  }
+
+  if (
+    normalizedPartName &&
+    normalizedPartName.length >= 5 &&
+    drawingName.includes(normalizedPartName)
+  ) {
+    return 65;
+  }
+
+  return 0;
+}
+
+function drawingViewsReferenceMatch(input: {
   views: unknown;
   partId: string;
   partName: string;
 }) {
   const partIds = collectStringValuesByKeys(
     input.views,
-    new Set(["partid", "idtag"]),
+    new Set([
+      "partid",
+      "partids",
+      "idtag",
+      "idtags",
+      "modelpartid",
+      "referencepartid",
+      "sourcepartid",
+    ]),
   );
   if (input.partId && partIds.size > 0) {
-    return partIds.size === 1 && partIds.has(input.partId);
+    return {
+      onlySelectedPart: partIds.size === 1 && partIds.has(input.partId),
+      referencesSelectedPart: partIds.has(input.partId),
+    };
   }
 
   const partNames = collectStringValuesByKeys(
     input.views,
-    new Set(["partname", "modelname", "referencename"]),
+    new Set([
+      "partname",
+      "partnames",
+      "modelname",
+      "modelnames",
+      "referencename",
+      "referencenames",
+      "sourcepartname",
+    ]),
   );
   const normalizedPartNames = new Set(
     Array.from(partNames).map((name) => normalizedComparable(name)),
   );
   const selectedName = normalizedComparable(input.partName);
   if (!selectedName || normalizedPartNames.size === 0) {
-    return null;
+    const allStrings = collectStringValues(input.views);
+    const referencesSelectedPart = Array.from(allStrings).some((value) => {
+      if (input.partId && value === input.partId) {
+        return true;
+      }
+
+      return normalizedComparable(value) === selectedName;
+    });
+
+    return {
+      onlySelectedPart: false,
+      referencesSelectedPart,
+    };
   }
 
-  return normalizedPartNames.size === 1 && normalizedPartNames.has(selectedName);
+  return {
+    onlySelectedPart:
+      normalizedPartNames.size === 1 && normalizedPartNames.has(selectedName),
+    referencesSelectedPart: normalizedPartNames.has(selectedName),
+  };
 }
 
 async function fetchDrawingViews(
@@ -1216,10 +1319,21 @@ async function findSinglePartDrawing(input: {
   }
 
   const drawings = elements.filter(isDrawingElement);
+  const viewableDrawings: OnshapeElement[] = [];
+  let bestDrawing: { drawing: OnshapeElement; score: number } | null = null;
   for (const drawing of drawings) {
     const drawingElementId = normalizeString(drawing.id);
     if (!drawingElementId) {
       continue;
+    }
+
+    const nameScore = drawingElementNameScore(
+      drawing,
+      input.partName,
+      input.partNumber,
+    );
+    if (nameScore > (bestDrawing?.score ?? 0)) {
+      bestDrawing = { drawing, score: nameScore };
     }
 
     try {
@@ -1228,20 +1342,22 @@ async function findSinglePartDrawing(input: {
         input.accessToken,
         drawingElementId,
       );
-      const viewMatch = drawingViewsOnlyReferenceSelectedPart({
+      viewableDrawings.push(drawing);
+      const viewMatch = drawingViewsReferenceMatch({
           views,
           partId: input.partId,
           partName: input.partName,
       });
-      if (viewMatch === true) {
+      if (viewMatch.onlySelectedPart) {
         return drawing;
       }
 
-      if (
-        viewMatch === null &&
-        drawingElementNameMatches(drawing, input.partName, input.partNumber)
-      ) {
+      if (viewMatch.referencesSelectedPart && nameScore >= 65) {
         return drawing;
+      }
+
+      if (viewMatch.referencesSelectedPart && (bestDrawing?.score ?? 0) < 60) {
+        bestDrawing = { drawing, score: 60 };
       }
     } catch {
       if (
@@ -1252,7 +1368,15 @@ async function findSinglePartDrawing(input: {
     }
   }
 
-  return null;
+  if (bestDrawing && bestDrawing.score >= 60) {
+    return bestDrawing.drawing;
+  }
+
+  if (viewableDrawings.length === 1) {
+    return viewableDrawings[0];
+  }
+
+  return drawings.length === 1 ? drawings[0] : null;
 }
 
 function firstTranslationResultId(value: unknown): string {
