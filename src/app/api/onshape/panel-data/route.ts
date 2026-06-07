@@ -20,30 +20,40 @@ function searchParamsToRecord(searchParams: URLSearchParams) {
   return params;
 }
 
+function bearerToken(req: Request) {
+  const authorization = req.headers.get("authorization") ?? "";
+  const match = /^Bearer\s+(.+)$/i.exec(authorization);
+  return match?.[1]?.trim() ?? "";
+}
+
 export async function GET(req: Request) {
   try {
     const url = new URL(req.url);
     const mode = url.searchParams.get("__mode");
     url.searchParams.delete("__mode");
+    const accessToken = bearerToken(req);
     const data = await loadOnshapePanelData(
       searchParamsToRecord(url.searchParams),
       mode === "fast"
         ? {
+            accessToken,
             includeFieldOptions: false,
             includeBom: false,
             includeDrawing: false,
           }
         : mode === "details"
           ? {
+              accessToken,
               includeFieldOptions: false,
               includeUser: false,
             }
           : mode === "options"
             ? {
+                accessToken,
                 includeMetadata: false,
                 includeUser: false,
               }
-            : undefined,
+            : { accessToken },
     );
 
     return Response.json(data);

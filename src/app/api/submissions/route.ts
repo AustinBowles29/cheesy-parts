@@ -5,6 +5,12 @@ import type { SubmissionInput } from "@/lib/types";
 
 export const runtime = "nodejs";
 
+function bearerToken(req: Request) {
+  const authorization = req.headers.get("authorization") ?? "";
+  const match = /^Bearer\s+(.+)$/i.exec(authorization);
+  return match?.[1]?.trim() ?? "";
+}
+
 function formDataToInput(
   formData: FormData,
   attachments: SubmissionInput["attachments"],
@@ -41,6 +47,7 @@ export async function POST(req: Request) {
         const drawingAttachment = await createOnshapeDrawingPdfAttachment(
           input,
           req.url,
+          bearerToken(req),
         );
         if (drawingAttachment) {
           input.attachments = [...(input.attachments ?? []), drawingAttachment];

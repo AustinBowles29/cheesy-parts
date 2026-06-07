@@ -24,8 +24,16 @@ export async function GET(req: Request) {
   try {
     const returnTo = await consumeOnshapeOAuthState(state);
     const tokens = await exchangeOnshapeCode(code);
-    await setOnshapeTokens(tokens);
-    return NextResponse.redirect(new URL(returnTo, url.origin));
+    const expiresAt = await setOnshapeTokens(tokens);
+    const redirectUrl = new URL(returnTo, url.origin);
+    const hashParams = new URLSearchParams(
+      redirectUrl.hash.startsWith("#") ? redirectUrl.hash.slice(1) : "",
+    );
+    hashParams.set("onshapeAccessToken", tokens.access_token);
+    hashParams.set("onshapeTokenExpiresAt", String(expiresAt));
+    redirectUrl.hash = hashParams.toString();
+
+    return NextResponse.redirect(redirectUrl);
   } catch (oauthError) {
     return new Response(
       oauthError instanceof Error

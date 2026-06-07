@@ -17,10 +17,58 @@ interface OnshapeSubmissionPanelLoaderProps {
   panelDataUrl: string;
 }
 
+const accessTokenStorageKey = "cheesy-parts:onshape-access-token";
+const tokenExpiresAtStorageKey = "cheesy-parts:onshape-token-expires-at";
+const tokenMessageType = "cheesy-parts:onshape-token";
+
+interface OnshapeTokenMessage {
+  type?: string;
+  accessToken?: string;
+  expiresAt?: string;
+}
+
 function panelDataUrlWithMode(panelDataUrl: string, mode: string) {
   const url = new URL(panelDataUrl, window.location.origin);
   url.searchParams.set("__mode", mode);
   return `${url.pathname}${url.search}`;
+}
+
+function storedAccessToken() {
+  if (typeof window === "undefined") {
+    return "";
+  }
+
+  const accessToken = window.sessionStorage.getItem(accessTokenStorageKey) ?? "";
+  const expiresAt = Number(
+    window.sessionStorage.getItem(tokenExpiresAtStorageKey) ?? 0,
+  );
+
+  if (!accessToken || !Number.isFinite(expiresAt) || expiresAt <= Date.now()) {
+    window.sessionStorage.removeItem(accessTokenStorageKey);
+    window.sessionStorage.removeItem(tokenExpiresAtStorageKey);
+    return "";
+  }
+
+  return accessToken;
+}
+
+function persistAccessToken(accessToken: string, expiresAt: string) {
+  if (!accessToken || !expiresAt) {
+    return "";
+  }
+
+  const expiresAtMs = Number(expiresAt);
+  if (!Number.isFinite(expiresAtMs) || expiresAtMs <= Date.now()) {
+    return "";
+  }
+
+  window.sessionStorage.setItem(accessTokenStorageKey, accessToken);
+  window.sessionStorage.setItem(tokenExpiresAtStorageKey, String(expiresAtMs));
+  return accessToken;
+}
+
+function headersForAccessToken(accessToken: string) {
+  return accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined;
 }
 
 function mergeDefaults(
@@ -88,22 +136,81 @@ export function OnshapeSubmissionPanelLoader({
   initialFieldOptions,
   panelDataUrl,
 }: OnshapeSubmissionPanelLoaderProps) {
+  const [panelAccessToken, setPanelAccessToken] = useState(storedAccessToken);
   const [panelData, setPanelData] = useState<PanelData>({
     defaults: initialDefaults,
     fieldOptions: initialFieldOptions,
   });
 
   useEffect(() => {
+    function applyAccessToken(accessToken: string, expiresAt: string) {
+      const persistedToken = persistAccessToken(accessToken, expiresAt);
+      if (persistedToken) {
+        setPanelAccessToken(persistedToken);
+      }
+    }
+
+    const hashParams = new URLSearchParams(window.location.hash.slice(1));
+    const accessToken = hashParams.get("onshapeAccessToken") ?? "";
+    const expiresAt = hashParams.get("onshapeTokenExpiresAt") ?? "";
+    if (accessToken && expiresAt) {
+      applyAccessToken(accessToken, expiresAt);
+      hashParams.delete("onshapeAccessToken");
+      hashParams.delete("onshapeTokenExpiresAt");
+      const nextHash = hashParams.toString();
+      const nextUrl = `${window.location.pathname}${window.location.search}${
+        nextHash ? `#${nextHash}` : ""
+      }`;
+      window.history.replaceState(null, "", nextUrl);
+
+      if (window.opener && !window.opener.closed) {
+        window.opener.postMessage(
+          { type: tokenMessageType, accessToken, expiresAt },
+          window.location.origin,
+        );
+        window.setTimeout(() => window.close(), 150);
+      }
+    }
+
+    function receiveTokenMessage(event: MessageEvent<OnshapeTokenMessage>) {
+      if (event.origin !== window.location.origin) {
+        return;
+      }
+
+      if (event.data?.type !== tokenMessageType) {
+        return;
+      }
+
+      applyAccessToken(event.data.accessToken ?? "", event.data.expiresAt ?? "");
+    }
+
+    window.addEventListener("message", receiveTokenMessage);
+    return () => window.removeEventListener("message", receiveTokenMessage);
+  }, []);
+
+  useEffect(() => {
     const abortController = new AbortController();
 
     function applyPanelData(body: PanelData) {
+      const hasOnshapeDefaults = Boolean(
+        body.defaults?.partName ||
+          body.defaults?.partNumber ||
+          body.defaults?.material ||
+          body.defaults?.notes ||
+          body.defaults?.onshapeDrawingUrl ||
+          body.defaults?.submitter,
+      );
       setPanelData((current) => ({
         defaults: mergeDefaults(current.defaults, body.defaults),
         fieldOptions: hasFieldOptions(body.fieldOptions)
           ? body.fieldOptions
           : current.fieldOptions,
-        onshapeAuthUrl: body.onshapeAuthUrl ?? current.onshapeAuthUrl,
-        onshapeWarning: body.onshapeWarning ?? current.onshapeWarning,
+        onshapeAuthUrl: hasOnshapeDefaults
+          ? undefined
+          : body.onshapeAuthUrl ?? current.onshapeAuthUrl,
+        onshapeWarning: hasOnshapeDefaults
+          ? undefined
+          : body.onshapeWarning ?? current.onshapeWarning,
       }));
     }
 
@@ -112,6 +219,7 @@ export function OnshapeSubmissionPanelLoader({
         const response = await fetch(panelDataUrlWithMode(panelDataUrl, mode), {
           cache: "no-store",
           credentials: "include",
+          headers: headersForAccessToken(panelAccessToken),
           signal: abortController.signal,
         });
         const body = await response.json();
@@ -141,12 +249,13 @@ export function OnshapeSubmissionPanelLoader({
     loadPanelData("details");
 
     return () => abortController.abort();
-  }, [panelDataUrl]);
+  }, [panelAccessToken, panelDataUrl]);
 
   return (
     <OnshapeSubmissionPanel
       defaults={panelData.defaults}
       fieldOptions={panelData.fieldOptions}
+      onshapeAccessToken={panelAccessToken}
       onshapeAuthUrl={panelData.onshapeAuthUrl}
       onshapeWarning={panelData.onshapeWarning}
     />

@@ -24,6 +24,7 @@ import { ToastViewport, useToasts } from "./toast";
 interface OnshapeSubmissionPanelProps {
   defaults: SubmissionInput;
   fieldOptions: SubmissionFieldOptions;
+  onshapeAccessToken?: string;
   onshapeAuthUrl?: string;
   onshapeWarning?: string;
 }
@@ -120,6 +121,7 @@ function initialAirtableTableValue(
 export function OnshapeSubmissionPanel({
   defaults,
   fieldOptions,
+  onshapeAccessToken = "",
   onshapeAuthUrl,
   onshapeWarning,
 }: OnshapeSubmissionPanelProps) {
@@ -337,6 +339,24 @@ export function OnshapeSubmissionPanel({
     dirtyFieldsRef.current.add(name);
   }
 
+  function openOnshapeAuth(event: React.MouseEvent<HTMLAnchorElement>) {
+    if (!onshapeAuthUrl) {
+      return;
+    }
+
+    const popup = window.open(
+      onshapeAuthUrl,
+      "cheesy-parts-onshape-oauth",
+      "popup,width=760,height=840",
+    );
+    if (!popup) {
+      return;
+    }
+
+    event.preventDefault();
+    popup.focus();
+  }
+
   function showIntegrationWarnings(warnings: string[] = []) {
     for (const warning of warnings) {
       const normalizedWarning = warning.toLowerCase();
@@ -429,6 +449,9 @@ export function OnshapeSubmissionPanel({
     try {
       const response = await fetch("/api/submissions", {
         method: "POST",
+        headers: onshapeAccessToken
+          ? { Authorization: `Bearer ${onshapeAccessToken}` }
+          : undefined,
         body: formData,
       });
       const body = await response.json();
@@ -545,8 +568,9 @@ export function OnshapeSubmissionPanel({
               </div>
               <a
                 href={onshapeAuthUrl}
+                onClick={openOnshapeAuth}
                 target="_blank"
-                rel="noreferrer"
+                rel="opener"
                 className="interactive inline-flex h-10 items-center justify-center gap-2 rounded-md bg-[#0b3d91] px-3 text-sm font-semibold text-white hover:bg-[#082f6f]"
               >
                 <LinkIcon size={16} aria-hidden="true" />

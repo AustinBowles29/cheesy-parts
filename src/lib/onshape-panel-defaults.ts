@@ -253,6 +253,7 @@ interface LoadOnshapePanelDataOptions {
   includeUser?: boolean;
   includeBom?: boolean;
   includeDrawing?: boolean;
+  accessToken?: string;
 }
 
 export async function loadOnshapePanelData(
@@ -266,13 +267,17 @@ export async function loadOnshapePanelData(
     normalizeOnshapeServer(firstPanelParam(params.server)) || undefined;
   const [onshapeUser, onshapeMetadata, fieldOptions] = await Promise.all([
     includeUser
-      ? fetchOnshapeCurrentUser({ server: onshapeServer })
+      ? fetchOnshapeCurrentUser({
+          accessToken: options.accessToken,
+          server: onshapeServer,
+        })
       : Promise.resolve({ defaults: {} }),
     includeMetadata
       ? fetchOnshapePartMetadata(
           onshapeContextFromParams(params, firstPanelParam),
           `/onshape${panelParamsToQueryString(params)}`,
           {
+            accessToken: options.accessToken,
             includeBom: options.includeBom,
             includeDrawing: options.includeDrawing,
           },

@@ -108,6 +108,7 @@ export interface OnshapeUserResult {
 interface OnshapeMetadataOptions {
   includeBom?: boolean;
   includeDrawing?: boolean;
+  accessToken?: string;
 }
 
 function clientId() {
@@ -295,6 +296,8 @@ export async function setOnshapeTokens(tokens: OnshapeTokenResponse) {
       cookieOptions(tokenCookieMaxAge),
     );
   }
+
+  return expiresAt;
 }
 
 export async function getOnshapeAccessToken() {
@@ -438,13 +441,14 @@ async function fetchOnshapeUserProfile(accessToken: string, server?: string) {
 }
 
 export async function fetchOnshapeCurrentUser(
-  options: { server?: string } = {},
+  options: { server?: string; accessToken?: string } = {},
 ): Promise<OnshapeUserResult> {
   if (!isOnshapeOAuthConfigured()) {
     return { defaults: {} };
   }
 
-  const accessToken = await getOnshapeAccessToken();
+  const accessToken =
+    normalizeString(options.accessToken) || (await getOnshapeAccessToken());
   if (!accessToken) {
     return { defaults: {} };
   }
@@ -1475,6 +1479,7 @@ async function exportDrawingPdf(input: {
 export async function createOnshapeDrawingPdfAttachment(
   input: SubmissionInput,
   requestUrl: string,
+  accessTokenOverride = "",
 ): Promise<AttachmentRef | null> {
   const drawingElementId = normalizeString(input.onshapeDrawingElementId);
   const documentId = normalizeString(input.onshapeDocumentId);
@@ -1486,7 +1491,8 @@ export async function createOnshapeDrawingPdfAttachment(
     return null;
   }
 
-  const accessToken = await getOnshapeAccessToken();
+  const accessToken =
+    normalizeString(accessTokenOverride) || (await getOnshapeAccessToken());
   if (!accessToken) {
     return null;
   }
@@ -1611,7 +1617,8 @@ export async function fetchOnshapePartMetadata(
     };
   }
 
-  const accessToken = await getOnshapeAccessToken();
+  const accessToken =
+    normalizeString(options.accessToken) || (await getOnshapeAccessToken());
   if (!accessToken) {
     return {
       defaults: {},
