@@ -11,6 +11,7 @@ import {
   normalizeString,
 } from "@/lib/manufacturing";
 import type { SubmissionFieldOptions, SubmissionInput } from "@/lib/types";
+import type { OnshapeMetadataResult } from "@/lib/integrations/onshape";
 
 export function emptySubmissionFieldOptions(): SubmissionFieldOptions {
   return {
@@ -246,18 +247,40 @@ export function mergeAutofillDefaults(
   };
 }
 
+interface LoadOnshapePanelDataOptions {
+  includeFieldOptions?: boolean;
+  includeMetadata?: boolean;
+  includeUser?: boolean;
+  includeBom?: boolean;
+  includeDrawing?: boolean;
+}
+
 export async function loadOnshapePanelData(
   params: Record<string, string | string[] | undefined>,
+  options: LoadOnshapePanelDataOptions = {},
 ) {
+  const includeFieldOptions = options.includeFieldOptions ?? true;
+  const includeMetadata = options.includeMetadata ?? true;
+  const includeUser = options.includeUser ?? true;
   const onshapeServer =
     normalizeOnshapeServer(firstPanelParam(params.server)) || undefined;
   const [onshapeUser, onshapeMetadata, fieldOptions] = await Promise.all([
-    fetchOnshapeCurrentUser({ server: onshapeServer }),
-    fetchOnshapePartMetadata(
-      onshapeContextFromParams(params, firstPanelParam),
-      `/onshape${panelParamsToQueryString(params)}`,
-    ),
-    getAirtableSubmissionFieldOptions(),
+    includeUser
+      ? fetchOnshapeCurrentUser({ server: onshapeServer })
+      : Promise.resolve({ defaults: {} }),
+    includeMetadata
+      ? fetchOnshapePartMetadata(
+          onshapeContextFromParams(params, firstPanelParam),
+          `/onshape${panelParamsToQueryString(params)}`,
+          {
+            includeBom: options.includeBom,
+            includeDrawing: options.includeDrawing,
+          },
+        )
+      : Promise.resolve<OnshapeMetadataResult>({ defaults: {} }),
+    includeFieldOptions
+      ? getAirtableSubmissionFieldOptions()
+      : Promise.resolve(emptySubmissionFieldOptions()),
   ]);
 
   return {

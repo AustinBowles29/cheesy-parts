@@ -105,6 +105,11 @@ export interface OnshapeUserResult {
   user?: OnshapeUser;
 }
 
+interface OnshapeMetadataOptions {
+  includeBom?: boolean;
+  includeDrawing?: boolean;
+}
+
 function clientId() {
   const id = normalizeString(process.env.ONSHAPE_CLIENT_ID);
   // Onshape client identifiers use a base32-style alphabet. A copied
@@ -967,25 +972,26 @@ async function fetchBom(
   return onshapeFetchJson<unknown>(endpoint, accessToken, context.server);
 }
 
-async function fetchBomPartNumber(input: {
+async function fetchBomDefaults(input: {
   accessToken: string;
   context: OnshapeContext;
   part: OnshapePart | null;
   partName: string;
-}): Promise<string> {
+}): Promise<Pick<SubmissionInput, "material" | "partNumber">> {
   const partId = input.context.partId || normalizeString(input.part?.partId);
   const partName = input.partName || normalizeString(input.part?.name);
   if (!partId && !partName) {
-    return "";
+    return {};
   }
 
   let assemblies: OnshapeElement[] = [];
   try {
     assemblies = await fetchAssemblyElements(input.context, input.accessToken);
   } catch {
-    return "";
+    return {};
   }
 
+  const defaults: Pick<SubmissionInput, "material" | "partNumber"> = {};
   for (const assembly of assemblies) {
     const assemblyElementId = normalizeString(assembly.id);
     if (!assemblyElementId) {
@@ -994,55 +1000,17 @@ async function fetchBomPartNumber(input: {
 
     try {
       const bom = await fetchBom(input.accessToken, input.context, assemblyElementId);
-      const partNumber = findBomPartNumber({ bom, partId, partName });
-      if (partNumber) {
-        return partNumber;
+      defaults.material ||= findBomMaterial({ bom, partId, partName });
+      defaults.partNumber ||= findBomPartNumber({ bom, partId, partName });
+      if (defaults.material && defaults.partNumber) {
+        return defaults;
       }
     } catch {
       continue;
     }
   }
 
-  return "";
-}
-
-async function fetchBomMaterial(input: {
-  accessToken: string;
-  context: OnshapeContext;
-  part: OnshapePart | null;
-  partName: string;
-}): Promise<string> {
-  const partId = input.context.partId || normalizeString(input.part?.partId);
-  const partName = input.partName || normalizeString(input.part?.name);
-  if (!partId && !partName) {
-    return "";
-  }
-
-  let assemblies: OnshapeElement[] = [];
-  try {
-    assemblies = await fetchAssemblyElements(input.context, input.accessToken);
-  } catch {
-    return "";
-  }
-
-  for (const assembly of assemblies) {
-    const assemblyElementId = normalizeString(assembly.id);
-    if (!assemblyElementId) {
-      continue;
-    }
-
-    try {
-      const bom = await fetchBom(input.accessToken, input.context, assemblyElementId);
-      const material = findBomMaterial({ bom, partId, partName });
-      if (material) {
-        return material;
-      }
-    } catch {
-      continue;
-    }
-  }
-
-  return "";
+  return defaults;
 }
 
 async function fetchDocumentElements(
@@ -1506,6 +1474,7 @@ function partToDefaults(
 export async function fetchOnshapePartMetadata(
   context: OnshapeContext | null,
   returnTo: string,
+  options: OnshapeMetadataOptions = {},
 ): Promise<OnshapeMetadataResult> {
   if (!context) {
     return { defaults: {} };
@@ -1556,39 +1525,41 @@ export async function fetchOnshapePartMetadata(
     }
 
     const defaults = partToDefaults(part, metadata);
-    if (!defaults.partNumber) {
-      const bomPartNumber = await fetchBomPartNumber({
-        accessToken,
-        context,
-        part,
-        partName: defaults.partName ?? "",
-      });
+    const includeBom = options.includeBom ?? true;
+    const includeDrawing = options.includeDrawing ?? true;
+    const needsBom = includeBom && (!defaults.partNumber || !defaults.material);
+    const bomDefaultsPromise: Promise<
+      Pick<SubmissionInput, "material" | "partNumber">
+    > = needsBom
+      ? fetchBomDefaults({
+          accessToken,
+          context,
+          part,
+          partName: defaults.partName ?? "",
+        })
+      : Promise.resolve({});
+    const drawingPromise: Promise<OnshapeElement | null> = includeDrawing
+      ? findSinglePartDrawing({
+          accessToken,
+          context,
+          partId: context.partId || normalizeString(part?.partId),
+          partName: defaults.partName ?? "",
+          partNumber: defaults.partNumber ?? "",
+        })
+      : Promise.resolve(null);
+    const [bomDefaults, drawing] = await Promise.all([
+      bomDefaultsPromise,
+      drawingPromise,
+    ]);
 
-      if (bomPartNumber) {
-        defaults.partNumber = bomPartNumber;
-      }
+    if (!defaults.partNumber && bomDefaults.partNumber) {
+      defaults.partNumber = bomDefaults.partNumber;
     }
 
-    if (!defaults.material) {
-      const bomMaterial = await fetchBomMaterial({
-        accessToken,
-        context,
-        part,
-        partName: defaults.partName ?? "",
-      });
-
-      if (bomMaterial) {
-        defaults.material = bomMaterial;
-      }
+    if (!defaults.material && bomDefaults.material) {
+      defaults.material = bomDefaults.material;
     }
 
-    const drawing = await findSinglePartDrawing({
-      accessToken,
-      context,
-      partId: context.partId || normalizeString(part?.partId),
-      partName: defaults.partName ?? "",
-      partNumber: defaults.partNumber ?? "",
-    });
     const drawingElementId = normalizeString(drawing?.id);
     if (drawingElementId) {
       defaults.onshapeDrawingElementId = drawingElementId;

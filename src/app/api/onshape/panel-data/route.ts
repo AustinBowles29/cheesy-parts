@@ -23,8 +23,27 @@ function searchParamsToRecord(searchParams: URLSearchParams) {
 export async function GET(req: Request) {
   try {
     const url = new URL(req.url);
+    const mode = url.searchParams.get("__mode");
+    url.searchParams.delete("__mode");
     const data = await loadOnshapePanelData(
       searchParamsToRecord(url.searchParams),
+      mode === "fast"
+        ? {
+            includeFieldOptions: false,
+            includeBom: false,
+            includeDrawing: false,
+          }
+        : mode === "details"
+          ? {
+              includeFieldOptions: false,
+              includeUser: false,
+            }
+          : mode === "options"
+            ? {
+                includeMetadata: false,
+                includeUser: false,
+              }
+            : undefined,
     );
 
     return Response.json(data);
