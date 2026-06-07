@@ -105,7 +105,10 @@ export interface OnshapeUserResult {
 }
 
 function clientId() {
-  return process.env.ONSHAPE_CLIENT_ID;
+  const id = normalizeString(process.env.ONSHAPE_CLIENT_ID);
+  // Onshape client identifiers use a base32-style alphabet. A copied
+  // uppercase O can easily become a zero, which makes /oauth/authorize reject.
+  return id.replace(/0/g, "O");
 }
 
 function clientSecret() {
