@@ -128,6 +128,12 @@ function apiBaseUrl() {
   return (process.env.ONSHAPE_API_BASE_URL ?? defaultApiBaseUrl).replace(/\/$/, "");
 }
 
+function oauthScopes() {
+  return normalizeString(
+    process.env.ONSHAPE_SCOPES ?? "OAuth2ReadPII OAuth2Read",
+  );
+}
+
 export function isOnshapeOAuthConfigured() {
   return Boolean(clientId() && clientSecret() && redirectUri());
 }
@@ -180,6 +186,10 @@ export function buildOnshapeAuthorizationUrl(
   url.searchParams.set("client_id", id);
   url.searchParams.set("redirect_uri", callback);
   url.searchParams.set("state", state);
+  const scopes = oauthScopes();
+  if (scopes) {
+    url.searchParams.set("scope", scopes);
+  }
   if (companyId && companyId !== "cad") {
     url.searchParams.set("company_id", companyId);
   }
