@@ -6,6 +6,7 @@ import {
   listAirtableRequests,
   resolveAirtableTableTarget,
   statusForAirtableTarget,
+  updateAirtableSlackMessageInfo,
   updateAirtableStatus,
 } from "./integrations/airtable";
 import {
@@ -13,6 +14,7 @@ import {
   notifyNewSubmission,
   notifyStatusChange,
 } from "./integrations/slack";
+import type { SlackNotificationResult } from "./integrations/slack";
 import {
   coerceCategory,
   coerceFinish,
@@ -137,17 +139,21 @@ export function buildManufacturingRequest(
   return request;
 }
 
-async function runNotification(
+async function runNotification<T>(
   warnings: string[],
-  notifier: () => Promise<string | null>,
-) {
+  notifier: () => Promise<T | string | null>,
+): Promise<T | null> {
   try {
-    const warning = await notifier();
-    if (warning) {
-      warnings.push(warning);
+    const result = await notifier();
+    if (typeof result === "string") {
+      warnings.push(result);
+      return null;
     }
+
+    return result;
   } catch (error) {
     warnings.push(error instanceof Error ? error.message : "Notification failed.");
+    return null;
   }
 }
 
@@ -196,7 +202,50 @@ export async function createManufacturingRequest(
   }
 
   await upsertLocalRequest(request);
-  await runNotification(warnings, () => notifyNewSubmission(request));
+  const submissionNotification = await runNotification<SlackNotificationResult>(
+    warnings,
+    () => notifyNewSubmission(request),
+  );
+
+  if (submissionNotification?.channelId || submissionNotification?.messageTs) {
+    request = {
+      ...request,
+      slackChannelId:
+        submissionNotification.channelId ?? request.slackChannelId,
+      slackMessageTs:
+        submissionNotification.messageTs ?? request.slackMessageTs,
+    };
+
+    if (isAirtableConfigured() && request.airtableId) {
+      try {
+        const persisted = await updateAirtableSlackMessageInfo(
+          request.airtableId,
+          {
+            channelId: request.slackChannelId,
+            messageTs: request.slackMessageTs,
+          },
+          {
+            airtableTableId: request.airtableTableId,
+            airtableTableName: request.airtableTableName,
+            category: request.category,
+          },
+        );
+        request = {
+          ...request,
+          slackChannelId: persisted?.slackChannelId ?? request.slackChannelId,
+          slackMessageTs: persisted?.slackMessageTs ?? request.slackMessageTs,
+        };
+      } catch (error) {
+        warnings.push(
+          error instanceof Error
+            ? error.message
+            : "Slack thread metadata could not be saved to Airtable.",
+        );
+      }
+    }
+
+    await upsertLocalRequest(request);
+  }
 
   if (is3DPrint(request.machineType)) {
     await runNotification(warnings, () => notify3DPrintSubmission(request));

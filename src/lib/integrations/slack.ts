@@ -5,14 +5,25 @@ import { getManufacturingSlackUsers } from "./slack-users";
 interface SlackPayload {
   text: string;
   blocks?: Array<Record<string, unknown>>;
+  threadTs?: string;
 }
 
 interface SlackPostMessageResponse {
   ok: boolean;
   error?: string;
+  channel?: string;
+  ts?: string;
+  message?: {
+    ts?: string;
+  };
 }
 
 const slackApiBase = "https://slack.com/api";
+
+export interface SlackNotificationResult {
+  channelId?: string;
+  messageTs?: string;
+}
 
 function slackBotToken() {
   return process.env.SLACK_BOT_TOKEN;
@@ -50,21 +61,105 @@ function printChannelId() {
   return process.env.SLACK_3DP_CHANNEL_ID ?? manufacturingChannelId();
 }
 
-function manufacturingUsergroupMention() {
-  const usergroupId = normalizeString(process.env.SLACK_MANUFACTURING_USERGROUP_ID)
-    .split(",")[0]
-    ?.replace(/^<!subteam\^/, "")
+function firstConfiguredValue(keys: string[]) {
+  for (const key of keys) {
+    const value = normalizeString(process.env[key]).split(",")[0];
+    if (value) {
+      return value;
+    }
+  }
+
+  return "";
+}
+
+function normalizeUsergroupId(value: string) {
+  return normalizeString(value)
+    .replace(/^<!subteam\^/, "")
     .replace(/\|[^>]+>$/, "")
     .replace(/>$/, "");
-  const handle = normalizeString(process.env.SLACK_MANUFACTURING_USERGROUP_HANDLE)
-    .split(",")[0]
-    ?.replace(/^@/, "");
+}
+
+function normalizeUsergroupHandle(value: string) {
+  return normalizeString(value).replace(/^@/, "");
+}
+
+function usergroupMention(input: {
+  idKeys?: string[];
+  handleKeys?: string[];
+  fallbackHandle: string;
+}) {
+  const usergroupId = normalizeUsergroupId(
+    firstConfiguredValue(input.idKeys ?? []),
+  );
+  const handle =
+    normalizeUsergroupHandle(firstConfiguredValue(input.handleKeys ?? [])) ||
+    normalizeUsergroupHandle(input.fallbackHandle);
 
   if (usergroupId) {
     return `<!subteam^${usergroupId}${handle ? `|${handle}` : ""}>`;
   }
 
-  return handle ? `@${handle}` : "manufacturing";
+  return handle ? `@${handle}` : "";
+}
+
+function manufacturingUsergroupMention() {
+  return usergroupMention({
+    idKeys: [
+      "SLACK_MANUFACTURING_NOTIFY_USERGROUP_ID",
+      "SLACK_MANUFACTURING_NOTIFICATION_USERGROUP_ID",
+    ],
+    handleKeys: [
+      "SLACK_MANUFACTURING_NOTIFY_USERGROUP_HANDLE",
+      "SLACK_MANUFACTURING_NOTIFICATION_USERGROUP_HANDLE",
+    ],
+    fallbackHandle: "manufacturing",
+  });
+}
+
+function machineUsergroupMention(machineType: ManufacturingRequest["machineType"]) {
+  const machine = normalizeString(machineType).toLowerCase();
+
+  if (machine.includes("router")) {
+    return usergroupMention({
+      idKeys: ["SLACK_ROUTER_USERGROUP_ID", "SLACK_MACHINE_ROUTER_USERGROUP_ID"],
+      handleKeys: [
+        "SLACK_ROUTER_USERGROUP_HANDLE",
+        "SLACK_MACHINE_ROUTER_USERGROUP_HANDLE",
+      ],
+      fallbackHandle: "router",
+    });
+  }
+
+  if (machine.includes("lathe")) {
+    return usergroupMention({
+      idKeys: ["SLACK_LATHE_USERGROUP_ID", "SLACK_MACHINE_LATHE_USERGROUP_ID"],
+      handleKeys: [
+        "SLACK_LATHE_USERGROUP_HANDLE",
+        "SLACK_MACHINE_LATHE_USERGROUP_HANDLE",
+      ],
+      fallbackHandle: "lathe",
+    });
+  }
+
+  if (machine.includes("mill")) {
+    return usergroupMention({
+      idKeys: ["SLACK_MILL_USERGROUP_ID", "SLACK_MACHINE_MILL_USERGROUP_ID"],
+      handleKeys: [
+        "SLACK_MILL_USERGROUP_HANDLE",
+        "SLACK_MACHINE_MILL_USERGROUP_HANDLE",
+      ],
+      fallbackHandle: "mill",
+    });
+  }
+
+  return "";
+}
+
+function newSubmissionMentions(request: ManufacturingRequest) {
+  return [
+    manufacturingUsergroupMention(),
+    machineUsergroupMention(request.machineType),
+  ].filter(Boolean);
 }
 
 function subsystemOwnerMapRaw() {
@@ -162,6 +257,8 @@ async function postSlackToChannel(channelId: string, payload: SlackPayload) {
       channel: channelId,
       text: payload.text,
       blocks: payload.blocks,
+      thread_ts: payload.threadTs || undefined,
+      link_names: true,
     }),
   });
 
@@ -175,7 +272,10 @@ async function postSlackToChannel(channelId: string, payload: SlackPayload) {
     throw new Error(`Slack chat.postMessage failed: ${body.error ?? "unknown_error"}`);
   }
 
-  return null;
+  return {
+    channelId: body.channel ?? channelId,
+    messageTs: body.ts ?? body.message?.ts,
+  };
 }
 
 async function postSlack(input: {
@@ -183,6 +283,10 @@ async function postSlack(input: {
   channelId?: string;
   payload: SlackPayload;
 }) {
+  if (input.channelId && slackBotToken()) {
+    return postSlackToChannel(input.channelId, input.payload);
+  }
+
   if (input.webhookUrl) {
     return postSlackToWebhook(input.webhookUrl, input.payload);
   }
@@ -323,13 +427,13 @@ export async function notifyNewSubmission(request: ManufacturingRequest) {
     ownerMentions.length > 0 ? ownerMentions.join(" ") : "Not configured";
   const submitterText = await submitterLabel(request);
   const drawingText = drawingLinksLabel(request);
-  const manufacturingMention = manufacturingUsergroupMention();
+  const notifyText = newSubmissionMentions(request).join(" ");
 
   return postSlack({
     webhookUrl: manufacturingWebhookUrl(),
     channelId: manufacturingChannelId(),
     payload: {
-      text: `New manufacturing request: ${request.partName} submitted by ${request.submitter || "Unknown"} ${manufacturingMention}${
+      text: `New manufacturing request: ${request.partName} submitted by ${request.submitter || "Unknown"} ${notifyText}${
         ownerMentions.length > 0 ? ` ${ownerMentions.join(" ")}` : ""
       }`,
       blocks: [
@@ -344,7 +448,7 @@ export async function notifyNewSubmission(request: ManufacturingRequest) {
           type: "section",
           text: {
             type: "mrkdwn",
-            text: `Notify: ${manufacturingMention}`,
+            text: `Notify: ${notifyText || "@manufacturing"}`,
           },
         },
         {
@@ -422,11 +526,15 @@ export async function notifyStatusChange(input: {
     ? `<@${input.changedBySlackId}>`
     : input.changedBy || "Unknown";
   const partOwnerText = await submitterLabel(input.request);
+  const threadTs = normalizeString(input.request.slackMessageTs);
 
   return postSlack({
     webhookUrl: statusWebhookUrl(),
-    channelId: statusChannelId(),
+    channelId: threadTs
+      ? input.request.slackChannelId ?? statusChannelId()
+      : statusChannelId(),
     payload: {
+      threadTs,
       text: `${plainStatusText} changed by ${input.changedBy || "Unknown"}`,
       blocks: [
         {

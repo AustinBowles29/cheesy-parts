@@ -59,6 +59,8 @@ export interface ManufacturingRequest {
   airtableUrl?: string;
   airtableTableId?: string;
   airtableTableName?: string;
+  slackChannelId?: string;
+  slackMessageTs?: string;
   partName: string;
   partNumber: string;
   notes: string;

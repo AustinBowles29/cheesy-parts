@@ -857,6 +857,8 @@ function requestToFields(
       "Branch/Version Reference": request.branchVersionReference,
       Submitter: request.submitter,
       "Submitter Slack ID": request.submitterSlackId,
+      "Slack Channel ID": request.slackChannelId,
+      "Slack Message TS": request.slackMessageTs,
       "Time Created": request.submittedAt,
       "Part Drawing / File (Check with Designed)": attachmentFields(
         request.attachments,
@@ -942,6 +944,23 @@ function requestToFields(
   addMappedField(
     fields,
     table,
+    ["Slack Channel ID", "Slack Channel", "Slack Message Channel"],
+    request.slackChannelId,
+  );
+  addMappedField(
+    fields,
+    table,
+    [
+      "Slack Message TS",
+      "Slack Message Timestamp",
+      "Slack Thread TS",
+      "Slack Thread Timestamp",
+    ],
+    request.slackMessageTs,
+  );
+  addMappedField(
+    fields,
+    table,
     ["Time Created", "Timestamp", "Creation Date", "Created Date", "Date Created"],
     request.submittedAt,
   );
@@ -971,6 +990,42 @@ function requestToFields(
   addMappedField(fields, table, ["Lead Time"], request.leadTime);
   addMappedField(fields, table, ["Vendor Notes"], request.vendorNotes);
   addMappedField(fields, table, ["Audit History"], JSON.stringify(request.auditHistory));
+
+  return fields;
+}
+
+function slackMessageInfoFields(
+  info: {
+    channelId?: string;
+    messageTs?: string;
+  },
+  table?: AirtableTableSchema | null,
+) {
+  if (!table) {
+    return {
+      "Slack Channel ID": info.channelId,
+      "Slack Message TS": info.messageTs,
+    };
+  }
+
+  const fields: Record<string, unknown> = {};
+  addMappedField(
+    fields,
+    table,
+    ["Slack Channel ID", "Slack Channel", "Slack Message Channel"],
+    info.channelId,
+  );
+  addMappedField(
+    fields,
+    table,
+    [
+      "Slack Message TS",
+      "Slack Message Timestamp",
+      "Slack Thread TS",
+      "Slack Thread Timestamp",
+    ],
+    info.messageTs,
+  );
 
   return fields;
 }
@@ -1135,6 +1190,19 @@ export function mapAirtableRecord(
     airtableUrl: airtableRecordUrl(record.id, target),
     airtableTableId: target?.airtableTableId,
     airtableTableName: target?.airtableTableName,
+    slackChannelId:
+      fieldStringFrom(fields, [
+        "Slack Channel ID",
+        "Slack Channel",
+        "Slack Message Channel",
+      ]) || undefined,
+    slackMessageTs:
+      fieldStringFrom(fields, [
+        "Slack Message TS",
+        "Slack Message Timestamp",
+        "Slack Thread TS",
+        "Slack Thread Timestamp",
+      ]) || undefined,
     partName: partTitle,
     partNumber,
     notes: fieldString(fields, "Notes") || fieldString(fields, "Description"),
@@ -1216,6 +1284,33 @@ export async function createAirtableRecord(request: ManufacturingRequest) {
         ? savedRequest.attachments
         : request.attachments,
   };
+}
+
+export async function updateAirtableSlackMessageInfo(
+  recordId: string,
+  info: {
+    channelId?: string;
+    messageTs?: string;
+  },
+  tableHint: AirtableTableHint = {},
+) {
+  const resolvedTarget = resolveAirtableTableTarget(tableHint);
+  const { target, table } = await tableSchemaForTarget(resolvedTarget);
+  const fields = slackMessageInfoFields(info, table);
+
+  if (Object.keys(fields).length === 0) {
+    return null;
+  }
+
+  const record = await airtableFetch<AirtableRecord>(
+    `${tableUrl(target)}/${recordId}`,
+    {
+      method: "PATCH",
+      body: JSON.stringify({ fields }),
+    },
+  );
+
+  return mapAirtableRecord(record, target);
 }
 
 export async function statusForAirtableTarget(
