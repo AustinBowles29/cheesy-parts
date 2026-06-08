@@ -3,7 +3,6 @@ import {
   fetchOnshapeCurrentUser,
   fetchOnshapePartMetadata,
   normalizeOnshapeServer,
-  onshapeOAuthStartUrl,
   onshapeContextFromParams,
 } from "@/lib/integrations/onshape";
 import {
@@ -299,7 +298,7 @@ export async function loadOnshapePanelData(
       onshapeMetadata.defaults,
     ),
     fieldOptions,
-    onshapeAuthUrl: onshapeMetadata.authUrl ?? onshapeOAuthStartUrl(returnTo),
+    onshapeAuthUrl: onshapeMetadata.authUrl,
     onshapeWarning: onshapeMetadata.warning,
   };
 }

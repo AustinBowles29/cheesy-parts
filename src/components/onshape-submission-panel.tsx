@@ -579,7 +579,7 @@ export function OnshapeSubmissionPanel({
                 </div>
                 <p className="mt-1 text-sm text-[#5c6f8a]">
                   {onshapeWarning ??
-                    "Reconnect after permission changes to refresh drawing PDF export access."}
+                    "Connect Onshape to auto-fill part metadata from CAD."}
                 </p>
               </div>
               <a
