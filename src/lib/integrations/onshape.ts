@@ -1240,6 +1240,22 @@ function drawingElementNameScore(
   return 0;
 }
 
+function stringReferencesPartId(value: string, partId: string) {
+  const normalizedValue = normalizeString(value);
+  const normalizedPartId = normalizeString(partId);
+  if (!normalizedValue || !normalizedPartId) {
+    return false;
+  }
+
+  return (
+    normalizedValue === normalizedPartId ||
+    normalizedValue.includes(`/p/${normalizedPartId}`) ||
+    normalizedValue.includes(`partId=${normalizedPartId}`) ||
+    normalizedValue.includes(`partid=${normalizedPartId}`) ||
+    normalizedValue.includes(encodeURIComponent(normalizedPartId))
+  );
+}
+
 function drawingViewsReferenceMatch(input: {
   views: unknown;
   partId: string;
@@ -1260,9 +1276,13 @@ function drawingViewsReferenceMatch(input: {
     ]),
   );
   if (input.partId && partIds.size > 0) {
+    const referencesSelectedPart = Array.from(partIds).some((value) =>
+      stringReferencesPartId(value, input.partId),
+    );
+
     return {
-      onlySelectedPart: partIds.size === 1 && partIds.has(input.partId),
-      referencesSelectedPart: partIds.has(input.partId),
+      onlySelectedPart: partIds.size === 1 && referencesSelectedPart,
+      referencesSelectedPart,
     };
   }
 
@@ -1285,7 +1305,7 @@ function drawingViewsReferenceMatch(input: {
   if (!selectedName || normalizedPartNames.size === 0) {
     const allStrings = collectStringValues(input.views);
     const referencesSelectedPart = Array.from(allStrings).some((value) => {
-      if (input.partId && value === input.partId) {
+      if (input.partId && stringReferencesPartId(value, input.partId)) {
         return true;
       }
 
