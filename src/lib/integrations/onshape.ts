@@ -1188,58 +1188,6 @@ function collectStringValuesByKeys(
   return results;
 }
 
-function drawingElementNameMatches(
-  element: OnshapeElement,
-  partName: string,
-  partNumber: string,
-) {
-  const drawingName = normalizedComparable(normalizeString(element.name));
-  if (!drawingName) {
-    return false;
-  }
-
-  return [partName, partNumber]
-    .map((value) => normalizedComparable(value))
-    .filter(Boolean)
-    .some((value) => drawingName === value);
-}
-
-function drawingElementNameScore(
-  element: OnshapeElement,
-  partName: string,
-  partNumber: string,
-) {
-  const drawingName = normalizedComparable(normalizeString(element.name));
-  if (!drawingName) {
-    return 0;
-  }
-
-  const normalizedPartNumber = normalizedComparable(partNumber);
-  const normalizedPartName = normalizedComparable(partName);
-
-  if (normalizedPartNumber && drawingName === normalizedPartNumber) {
-    return 90;
-  }
-
-  if (normalizedPartName && drawingName === normalizedPartName) {
-    return 85;
-  }
-
-  if (normalizedPartNumber && drawingName.includes(normalizedPartNumber)) {
-    return 75;
-  }
-
-  if (
-    normalizedPartName &&
-    normalizedPartName.length >= 5 &&
-    drawingName.includes(normalizedPartName)
-  ) {
-    return 65;
-  }
-
-  return 0;
-}
-
 function stringReferencesPartId(value: string, partId: string) {
   const normalizedValue = normalizeString(value);
   const normalizedPartId = normalizeString(partId);
@@ -1256,25 +1204,182 @@ function stringReferencesPartId(value: string, partId: string) {
   );
 }
 
-function drawingViewsReferenceMatch(input: {
-  views: unknown;
-  partId: string;
-  partName: string;
-}) {
-  const partIds = collectStringValuesByKeys(
-    input.views,
-    new Set([
-      "partid",
-      "partids",
-      "idtag",
-      "idtags",
-      "modelpartid",
-      "modelreferenceid",
-      "referencepartid",
-      "referenceid",
-      "sourcepartid",
-    ]),
+function decodedReferenceStrings(value: string) {
+  const normalizedValue = normalizeString(value);
+  if (!normalizedValue) {
+    return [];
+  }
+
+  try {
+    const decodedValue = decodeURIComponent(normalizedValue);
+    return decodedValue === normalizedValue
+      ? [normalizedValue]
+      : [normalizedValue, decodedValue];
+  } catch {
+    return [normalizedValue];
+  }
+}
+
+function collectPartIdsFromReference(
+  value: string | number,
+  results: Set<string>,
+  allowPlainPartId: boolean,
+) {
+  const strings = decodedReferenceStrings(String(value));
+  let foundStructuredReference = false;
+
+  for (const item of strings) {
+    for (const match of item.matchAll(/\/p\/([^/?&#]+)/gi)) {
+      const partId = normalizeString(match[1]);
+      if (partId) {
+        foundStructuredReference = true;
+        results.add(partId);
+      }
+    }
+
+    for (const match of item.matchAll(/(?:^|[?&#])partid=([^&#]+)/gi)) {
+      const partId = normalizeString(match[1]);
+      if (partId) {
+        foundStructuredReference = true;
+        results.add(partId);
+      }
+    }
+  }
+
+  if (allowPlainPartId && !foundStructuredReference) {
+    const plainValue = normalizeString(String(value));
+    if (plainValue) {
+      results.add(plainValue);
+    }
+  }
+}
+
+const directDrawingPartIdKeys = new Set([
+  "idtag",
+  "idtags",
+  "modelpartid",
+  "partid",
+  "partids",
+  "referencepartid",
+  "sourcepartid",
+  "sourcepartids",
+  "targetpartid",
+  "targetpartids",
+]);
+
+const modelReferenceKeys = new Set([
+  "modelreference",
+  "modelreferenceid",
+  "modelreferenceids",
+  "modelreferences",
+  "modelurl",
+  "modelurls",
+  "reference",
+  "referenceid",
+  "referenceids",
+  "references",
+  "source",
+  "sourceid",
+  "sourceids",
+  "sourceurl",
+  "sourceurls",
+]);
+
+function collectDrawingReferencedPartIds(
+  value: unknown,
+  results = new Set<string>(),
+  mode: "generic" | "directPartId" | "modelReference" = "generic",
+) {
+  if (typeof value === "string" || typeof value === "number") {
+    collectPartIdsFromReference(value, results, mode === "directPartId");
+    return results;
+  }
+
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      collectDrawingReferencedPartIds(item, results, mode);
+    }
+
+    return results;
+  }
+
+  const record = asRecord(value);
+  if (!record) {
+    return results;
+  }
+
+  for (const [key, item] of Object.entries(record)) {
+    const normalizedKey = normalizedPropertyKey(key);
+    const childMode =
+      mode === "directPartId"
+        ? mode
+        : directDrawingPartIdKeys.has(normalizedKey)
+          ? "directPartId"
+          : modelReferenceKeys.has(normalizedKey)
+            ? "modelReference"
+            : "generic";
+    collectDrawingReferencedPartIds(item, results, childMode);
+  }
+
+  return results;
+}
+
+function collectDrawingModelReferenceIds(value: unknown) {
+  return collectStringValuesByKeys(
+    value,
+    new Set(["modelreferenceid", "modelreferenceids"]),
   );
+}
+
+async function fetchAppElementReference(input: {
+  accessToken: string;
+  context: OnshapeContext;
+  drawingElementId: string;
+  referenceId: string;
+}) {
+  return onshapeFetchJson<unknown>(
+    `/v6/appelements/d/${input.context.documentId}/${input.context.wvm}/${input.context.wvmId}/e/${input.drawingElementId}/references/${encodeURIComponent(input.referenceId)}`,
+    input.accessToken,
+    input.context.server,
+  );
+}
+
+async function collectDrawingReferencedPartIdsWithResolvedReferences(input: {
+  accessToken: string;
+  context: OnshapeContext;
+  drawingElementId: string;
+  views: unknown;
+}) {
+  const partIds = collectDrawingReferencedPartIds(input.views);
+  const referenceIds = collectDrawingModelReferenceIds(input.views);
+
+  await Promise.all(
+    Array.from(referenceIds).map(async (referenceId) => {
+      try {
+        const reference = await fetchAppElementReference({
+          accessToken: input.accessToken,
+          context: input.context,
+          drawingElementId: input.drawingElementId,
+          referenceId,
+        });
+        collectDrawingReferencedPartIds(reference, partIds);
+      } catch {
+        // Unresolvable references are treated as unknown, not as a match.
+      }
+    }),
+  );
+
+  return {
+    modelReferenceCount: referenceIds.size,
+    partIds,
+  };
+}
+
+function drawingViewsReferenceMatch(input: {
+  referencedPartIds: Set<string>;
+  partId: string;
+}) {
+  const partIds = input.referencedPartIds;
   if (input.partId && partIds.size > 0) {
     const referencesSelectedPart = Array.from(partIds).some((value) =>
       stringReferencesPartId(value, input.partId),
@@ -1286,6 +1391,20 @@ function drawingViewsReferenceMatch(input: {
     };
   }
 
+  return {
+    onlySelectedPart: false,
+    referencesSelectedPart: false,
+  };
+}
+
+function drawingViewsNameReferenceMatch(input: {
+  views: unknown;
+  partName: string;
+  partNumber: string;
+}) {
+  const selectedNames = [input.partName, input.partNumber]
+    .map((value) => normalizedComparable(value))
+    .filter(Boolean);
   const partNames = collectStringValuesByKeys(
     input.views,
     new Set([
@@ -1301,27 +1420,21 @@ function drawingViewsReferenceMatch(input: {
   const normalizedPartNames = new Set(
     Array.from(partNames).map((name) => normalizedComparable(name)),
   );
-  const selectedName = normalizedComparable(input.partName);
-  if (!selectedName || normalizedPartNames.size === 0) {
-    const allStrings = collectStringValues(input.views);
-    const referencesSelectedPart = Array.from(allStrings).some((value) => {
-      if (input.partId && stringReferencesPartId(value, input.partId)) {
-        return true;
-      }
-
-      return normalizedComparable(value) === selectedName;
-    });
-
+  if (selectedNames.length === 0 || normalizedPartNames.size === 0) {
     return {
       onlySelectedPart: false,
-      referencesSelectedPart,
+      referencesSelectedPart: false,
     };
   }
 
+  const referencesSelectedPart = selectedNames.some((name) =>
+    normalizedPartNames.has(name),
+  );
+
   return {
     onlySelectedPart:
-      normalizedPartNames.size === 1 && normalizedPartNames.has(selectedName),
-    referencesSelectedPart: normalizedPartNames.has(selectedName),
+      normalizedPartNames.size === 1 && referencesSelectedPart,
+    referencesSelectedPart,
   };
 }
 
@@ -1352,21 +1465,10 @@ async function findSinglePartDrawing(input: {
   }
 
   const drawings = elements.filter(isDrawingElement);
-  const viewableDrawings: OnshapeElement[] = [];
-  let bestDrawing: { drawing: OnshapeElement; score: number } | null = null;
   for (const drawing of drawings) {
     const drawingElementId = normalizeString(drawing.id);
     if (!drawingElementId) {
       continue;
-    }
-
-    const nameScore = drawingElementNameScore(
-      drawing,
-      input.partName,
-      input.partNumber,
-    );
-    if (nameScore > (bestDrawing?.score ?? 0)) {
-      bestDrawing = { drawing, score: nameScore };
     }
 
     try {
@@ -1375,41 +1477,36 @@ async function findSinglePartDrawing(input: {
         input.accessToken,
         drawingElementId,
       );
-      viewableDrawings.push(drawing);
-      const viewMatch = drawingViewsReferenceMatch({
+      const referencedParts =
+        await collectDrawingReferencedPartIdsWithResolvedReferences({
+          accessToken: input.accessToken,
+          context: input.context,
+          drawingElementId,
           views,
-          partId: input.partId,
-          partName: input.partName,
+        });
+      const viewMatch = drawingViewsReferenceMatch({
+        referencedPartIds: referencedParts.partIds,
+        partId: input.partId,
       });
-      if (viewMatch.onlySelectedPart) {
-        return drawing;
-      }
-
-      if (viewMatch.referencesSelectedPart && nameScore >= 65) {
-        return drawing;
-      }
-
-      if (viewMatch.referencesSelectedPart && (bestDrawing?.score ?? 0) < 60) {
-        bestDrawing = { drawing, score: 60 };
-      }
-    } catch {
+      const nameMatch = drawingViewsNameReferenceMatch({
+        views,
+        partName: input.partName,
+        partNumber: input.partNumber,
+      });
       if (
-        drawingElementNameMatches(drawing, input.partName, input.partNumber)
+        viewMatch.onlySelectedPart ||
+        (referencedParts.partIds.size === 0 &&
+          referencedParts.modelReferenceCount === 0 &&
+          nameMatch.onlySelectedPart)
       ) {
         return drawing;
       }
+    } catch {
+      continue;
     }
   }
 
-  if (bestDrawing && bestDrawing.score >= 60) {
-    return bestDrawing.drawing;
-  }
-
-  if (viewableDrawings.length === 1) {
-    return viewableDrawings[0];
-  }
-
-  return drawings.length === 1 ? drawings[0] : null;
+  return null;
 }
 
 function firstTranslationResultId(value: unknown): string {
