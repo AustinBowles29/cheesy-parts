@@ -3,6 +3,7 @@ import {
   fetchOnshapeCurrentUser,
   fetchOnshapePartMetadata,
   normalizeOnshapeServer,
+  onshapeOAuthStartUrl,
   onshapeContextFromParams,
 } from "@/lib/integrations/onshape";
 import {
@@ -264,6 +265,7 @@ export async function loadOnshapePanelData(
   const includeMetadata = options.includeMetadata ?? true;
   const includeUser = options.includeUser ?? true;
   const panelDefaults = defaultsFromPanelParams(params);
+  const returnTo = `/onshape${panelParamsToQueryString(params)}`;
   const onshapeServer =
     normalizeOnshapeServer(firstPanelParam(params.server)) || undefined;
   const [onshapeUser, onshapeMetadata, fieldOptions] = await Promise.all([
@@ -276,7 +278,7 @@ export async function loadOnshapePanelData(
     includeMetadata
       ? fetchOnshapePartMetadata(
           onshapeContextFromParams(params, firstPanelParam),
-          `/onshape${panelParamsToQueryString(params)}`,
+          returnTo,
           {
             accessToken: options.accessToken,
             includeBom: options.includeBom,
@@ -297,7 +299,7 @@ export async function loadOnshapePanelData(
       onshapeMetadata.defaults,
     ),
     fieldOptions,
-    onshapeAuthUrl: onshapeMetadata.authUrl,
+    onshapeAuthUrl: onshapeMetadata.authUrl ?? onshapeOAuthStartUrl(returnTo),
     onshapeWarning: onshapeMetadata.warning,
   };
 }

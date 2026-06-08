@@ -579,7 +579,7 @@ export function OnshapeSubmissionPanel({
                 </div>
                 <p className="mt-1 text-sm text-[#5c6f8a]">
                   {onshapeWarning ??
-                    "Connect Onshape to auto-fill part metadata from CAD."}
+                    "Reconnect after permission changes to refresh drawing PDF export access."}
                 </p>
               </div>
               <a
@@ -590,7 +590,7 @@ export function OnshapeSubmissionPanel({
                 className="interactive inline-flex h-10 items-center justify-center gap-2 rounded-md bg-[#0b3d91] px-3 text-sm font-semibold text-white hover:bg-[#082f6f]"
               >
                 <LinkIcon size={16} aria-hidden="true" />
-                Connect Onshape
+                {onshapeAccessToken ? "Reconnect Onshape" : "Connect Onshape"}
               </a>
             </div>
           </section>
