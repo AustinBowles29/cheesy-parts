@@ -8,6 +8,7 @@ import {
   normalizeString,
 } from "../manufacturing";
 import { CATEGORIES } from "../constants";
+import { isPdfAttachment } from "../attachments";
 import type {
   AttachmentRef,
   AuditEntry,
@@ -564,6 +565,28 @@ function attachmentFields(
     }));
 }
 
+function drawingFieldValue(
+  field: AirtableFieldSchema | undefined,
+  attachments: AttachmentRef[],
+) {
+  const drawingAttachments = attachments
+    .filter((attachment) => attachment.kind === "drawing")
+    .filter((attachment) => attachment.url);
+
+  if (drawingAttachments.length === 0) {
+    return undefined;
+  }
+
+  if (field?.type === "multipleAttachments") {
+    return attachmentFields(
+      drawingAttachments.filter(isPdfAttachment),
+      "drawing",
+    );
+  }
+
+  return drawingAttachments[0]?.url;
+}
+
 function attachmentRefsFromField(
   fields: Record<string, unknown>,
   names: string[],
@@ -861,7 +884,7 @@ function requestToFields(
       "Slack Message TS": request.slackMessageTs,
       "Time Created": request.submittedAt,
       "Part Drawing / File (Check with Designed)": attachmentFields(
-        request.attachments,
+        request.attachments.filter(isPdfAttachment),
         "drawing",
       ),
       DXF: attachmentFields(request.attachments, "dxf"),
@@ -974,12 +997,15 @@ function requestToFields(
     ["Branch/Version Reference"],
     request.branchVersionReference,
   );
-  addMappedField(
-    fields,
-    table,
-    ["Part Drawing / File (Check with Designed)", "Drawing", "Drawing PDF"],
-    attachmentFields(request.attachments, "drawing"),
-  );
+  const drawingField = writableFieldByName(table, [
+    "Part Drawing / File (Check with Designed)",
+    "Drawing",
+    "Drawing PDF",
+  ]);
+  const drawingValue = drawingFieldValue(drawingField, request.attachments);
+  if (drawingField && drawingValue !== undefined) {
+    fields[drawingField.name] = drawingValue;
+  }
   addMappedField(fields, table, ["Print Material"], request.printMaterial);
   addMappedField(fields, table, ["Print Color"], request.printColor);
   addMappedField(fields, table, ["Infill"], request.infill);
