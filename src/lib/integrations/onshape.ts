@@ -169,6 +169,35 @@ function apiBaseUrlForServer(server?: string) {
   return onshapeServer ? `${onshapeServer}/api` : apiBaseUrl();
 }
 
+function onshapeElementContextFromUrl(value: string | undefined) {
+  const rawUrl = normalizeString(value);
+  if (!rawUrl) {
+    return null;
+  }
+
+  try {
+    const url = new URL(rawUrl);
+    const server = normalizeOnshapeServer(url.origin);
+    const match = /^\/documents\/([^/]+)\/([wvm])\/([^/]+)\/e\/([^/]+)/i.exec(
+      url.pathname,
+    );
+
+    if (!server || !match) {
+      return null;
+    }
+
+    return {
+      documentId: decodeURIComponent(match[1]),
+      wvm: match[2].toLowerCase(),
+      wvmId: decodeURIComponent(match[3]),
+      elementId: decodeURIComponent(match[4]),
+      server,
+    };
+  } catch {
+    return null;
+  }
+}
+
 function oauthScopes() {
   return normalizeString(
     process.env.ONSHAPE_SCOPES ?? "OAuth2ReadPII OAuth2Read OAuth2Write",
@@ -1578,6 +1607,7 @@ async function exportDrawingPdf(input: {
   server?: string;
 }) {
   const translationPath = `/v6/drawings/d/${input.documentId}/${input.wvm}/${input.wvmId}/e/${input.drawingElementId}/translations`;
+  const translationUrl = `${apiBaseUrlForServer(input.server)}${translationPath}`;
   let translation: OnshapeTranslationResponse;
   try {
     translation = await onshapePostJson<OnshapeTranslationResponse>(
@@ -1592,7 +1622,7 @@ async function exportDrawingPdf(input: {
     );
   } catch (error) {
     throw new Error(
-      `Onshape drawing PDF export could not start at ${translationPath}: ${
+      `Onshape drawing PDF export could not start at ${translationUrl}: ${
         error instanceof Error ? error.message : String(error)
       }`,
     );
@@ -1672,11 +1702,20 @@ export async function createOnshapeDrawingPdfAttachment(
   requestUrl: string,
   accessTokenOverride = "",
 ): Promise<AttachmentRef | null> {
-  const drawingElementId = normalizeString(input.onshapeDrawingElementId);
-  const documentId = normalizeString(input.onshapeDocumentId);
-  const wvm = normalizeString(input.onshapeWvm);
-  const wvmId = normalizeString(input.onshapeWvmId);
-  const server = normalizeOnshapeServer(input.onshapeServer);
+  const drawingUrlContext = onshapeElementContextFromUrl(input.onshapeDrawingUrl);
+  const drawingElementId =
+    normalizeString(drawingUrlContext?.elementId) ||
+    normalizeString(input.onshapeDrawingElementId);
+  const documentId =
+    normalizeString(drawingUrlContext?.documentId) ||
+    normalizeString(input.onshapeDocumentId);
+  const wvm =
+    normalizeString(drawingUrlContext?.wvm) || normalizeString(input.onshapeWvm);
+  const wvmId =
+    normalizeString(drawingUrlContext?.wvmId) || normalizeString(input.onshapeWvmId);
+  const server =
+    normalizeOnshapeServer(drawingUrlContext?.server) ||
+    normalizeOnshapeServer(input.onshapeServer);
 
   if (!drawingElementId || !documentId || !wvm || !wvmId) {
     return null;
