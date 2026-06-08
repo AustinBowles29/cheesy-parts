@@ -1545,7 +1545,7 @@ async function waitForTranslation(
   accessToken: string,
   server?: string,
 ): Promise<OnshapeTranslationResponse> {
-  for (let attempt = 0; attempt < 8; attempt += 1) {
+  for (let attempt = 0; attempt < 12; attempt += 1) {
     const translation = await onshapeFetchJson<OnshapeTranslationResponse>(
       `/v9/translations/${translationId}`,
       accessToken,

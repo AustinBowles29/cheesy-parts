@@ -4,6 +4,7 @@ import { createManufacturingRequest, ValidationError } from "@/lib/service";
 import type { SubmissionInput } from "@/lib/types";
 
 export const runtime = "nodejs";
+export const maxDuration = 60;
 
 function bearerToken(req: Request) {
   const authorization = req.headers.get("authorization") ?? "";

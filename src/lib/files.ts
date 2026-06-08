@@ -1,6 +1,7 @@
 import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { put } from "@vercel/blob";
 import type { AttachmentKind, AttachmentRef } from "./types";
 
 function defaultUploadDir() {
@@ -18,6 +19,10 @@ function defaultUploadDir() {
 }
 
 const uploadDir = defaultUploadDir();
+
+function blobStorageEnabled() {
+  return Boolean(process.env.BLOB_READ_WRITE_TOKEN);
+}
 
 function safeFilename(filename: string) {
   return filename
@@ -39,8 +44,24 @@ function attachmentKindForField(field: string): AttachmentKind {
   return "other";
 }
 
+async function saveFileToBlob(input: {
+  bytes: Buffer;
+  contentType: string;
+  filename: string;
+}) {
+  const blob = await put(`uploads/${input.filename}`, input.bytes, {
+    access: "public",
+    contentType: input.contentType || "application/octet-stream",
+  });
+
+  return blob.url;
+}
+
 export async function saveUploadedFiles(formData: FormData, requestUrl: string) {
-  await fs.mkdir(uploadDir, { recursive: true });
+  if (!blobStorageEnabled()) {
+    await fs.mkdir(uploadDir, { recursive: true });
+  }
+
   const baseUrl = new URL(requestUrl).origin;
   const attachments: AttachmentRef[] = [];
 
@@ -54,15 +75,22 @@ export async function saveUploadedFiles(formData: FormData, requestUrl: string) 
 
       const id = `${crypto.randomUUID()}-${safeFilename(value.name)}`;
       const bytes = Buffer.from(await value.arrayBuffer());
-      await fs.writeFile(path.join(uploadDir, id), bytes);
+      const contentType = value.type || "application/octet-stream";
+      const url = blobStorageEnabled()
+        ? await saveFileToBlob({ bytes, contentType, filename: id })
+        : `${baseUrl}/api/files/${encodeURIComponent(id)}`;
+
+      if (!blobStorageEnabled()) {
+        await fs.writeFile(path.join(uploadDir, id), bytes);
+      }
 
       attachments.push({
         id,
         filename: value.name,
-        contentType: value.type || "application/octet-stream",
+        contentType,
         kind: attachmentKindForField(field),
         size: value.size,
-        url: `${baseUrl}/api/files/${encodeURIComponent(id)}`,
+        url,
       });
     }
   }
@@ -77,10 +105,23 @@ export async function saveGeneratedFile(input: {
   kind: AttachmentKind;
   requestUrl: string;
 }): Promise<AttachmentRef> {
-  await fs.mkdir(uploadDir, { recursive: true });
+  if (!blobStorageEnabled()) {
+    await fs.mkdir(uploadDir, { recursive: true });
+  }
+
   const baseUrl = new URL(input.requestUrl).origin;
   const id = `${crypto.randomUUID()}-${safeFilename(input.filename)}`;
-  await fs.writeFile(path.join(uploadDir, id), input.bytes);
+  const url = blobStorageEnabled()
+    ? await saveFileToBlob({
+        bytes: input.bytes,
+        contentType: input.contentType,
+        filename: id,
+      })
+    : `${baseUrl}/api/files/${encodeURIComponent(id)}`;
+
+  if (!blobStorageEnabled()) {
+    await fs.writeFile(path.join(uploadDir, id), input.bytes);
+  }
 
   return {
     id,
@@ -88,7 +129,7 @@ export async function saveGeneratedFile(input: {
     contentType: input.contentType,
     kind: input.kind,
     size: input.bytes.length,
-    url: `${baseUrl}/api/files/${encodeURIComponent(id)}`,
+    url,
   };
 }
 
