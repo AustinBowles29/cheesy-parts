@@ -1,3 +1,4 @@
+import { isDrawingPdfAttachment } from "../attachments";
 import { normalizeString } from "../manufacturing";
 import type { ManufacturingRequest, ManufacturingStatus } from "../types";
 import { getManufacturingSlackUsers } from "./slack-users";
@@ -339,9 +340,7 @@ async function submitterLabel(request: ManufacturingRequest) {
 }
 
 function drawingPdfLinkLabel(request: ManufacturingRequest) {
-  const drawingAttachment = request.attachments.find(
-    (attachment) => attachment.kind === "drawing" && attachment.url,
-  );
+  const drawingAttachment = request.attachments.find(isDrawingPdfAttachment);
 
   if (!drawingAttachment?.url) {
     return "";

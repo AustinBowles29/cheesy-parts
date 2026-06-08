@@ -2,6 +2,7 @@ import {
   getAirtableRequest,
   isAirtableConfigured,
 } from "@/lib/integrations/airtable";
+import { isDrawingPdfAttachment } from "@/lib/attachments";
 import { findManufacturingRequest } from "@/lib/service";
 
 export const runtime = "nodejs";
@@ -34,9 +35,7 @@ export async function GET(
 
     request ??= await findManufacturingRequest(id, tableHint);
 
-    const drawing = request?.attachments.find(
-      (attachment) => attachment.kind === "drawing" && attachment.url,
-    );
+    const drawing = request?.attachments.find(isDrawingPdfAttachment);
     if (!drawing?.url) {
       return Response.json({ error: "Drawing PDF not found." }, { status: 404 });
     }

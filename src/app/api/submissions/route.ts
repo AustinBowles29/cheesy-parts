@@ -1,4 +1,5 @@
 import { saveUploadedFiles } from "@/lib/files";
+import { drawingLinkAttachment } from "@/lib/attachments";
 import { createOnshapeDrawingPdfAttachment } from "@/lib/integrations/onshape";
 import { createManufacturingRequest, ValidationError } from "@/lib/service";
 import type { SubmissionInput } from "@/lib/types";
@@ -69,7 +70,13 @@ export async function POST(req: Request) {
         }
       } catch (error) {
         console.error("Onshape drawing PDF export failed", error);
-        warnings.push(drawingPdfWarning(error));
+        const fallbackDrawingLink = drawingLinkAttachment(input.onshapeDrawingUrl ?? "");
+        if (fallbackDrawingLink) {
+          input.attachments = [...(input.attachments ?? []), fallbackDrawingLink];
+          warnings.push(`${drawingPdfWarning(error)} Saved the Onshape drawing link instead.`);
+        } else {
+          warnings.push(drawingPdfWarning(error));
+        }
       }
     }
 
