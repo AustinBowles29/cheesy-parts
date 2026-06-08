@@ -227,15 +227,15 @@ export function OnshapeSubmissionPanelLoader({
   useEffect(() => {
     const abortController = new AbortController();
 
-    function applyPanelData(body: PanelData) {
+    function applyPanelData(body: PanelData, mode: string) {
       const hasOnshapeDefaults = Boolean(
         body.defaults?.partName ||
-          body.defaults?.partNumber ||
           body.defaults?.material ||
           body.defaults?.notes ||
           body.defaults?.onshapeDrawingUrl ||
           body.defaults?.submitter,
       );
+      const includesOnshapeAuthState = mode !== "options";
       setPanelData((current) => {
         const nextPanelData = {
           defaults: mergeDefaults(current.defaults, body.defaults, {
@@ -244,12 +244,14 @@ export function OnshapeSubmissionPanelLoader({
           fieldOptions: hasFieldOptions(body.fieldOptions)
             ? body.fieldOptions
             : current.fieldOptions,
-          onshapeAuthUrl:
-            body.onshapeAuthUrl ??
-            (hasOnshapeDefaults ? undefined : current.onshapeAuthUrl),
-          onshapeWarning:
-            body.onshapeWarning ??
-            (hasOnshapeDefaults ? undefined : current.onshapeWarning),
+          onshapeAuthUrl: includesOnshapeAuthState
+            ? body.onshapeAuthUrl ??
+              (hasOnshapeDefaults ? undefined : current.onshapeAuthUrl)
+            : current.onshapeAuthUrl,
+          onshapeWarning: includesOnshapeAuthState
+            ? body.onshapeWarning ??
+              (hasOnshapeDefaults ? undefined : current.onshapeWarning)
+            : current.onshapeWarning,
         };
 
         rememberOnshapePanelData(panelDataUrl, {
@@ -275,7 +277,7 @@ export function OnshapeSubmissionPanelLoader({
           throw new Error(body.error ?? "Autofill data could not be loaded.");
         }
 
-        applyPanelData(body);
+        applyPanelData(body, mode);
       } catch (error) {
         if (abortController.signal.aborted) {
           return;
