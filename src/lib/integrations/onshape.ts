@@ -171,7 +171,7 @@ function apiBaseUrlForServer(server?: string) {
 
 function oauthScopes() {
   return normalizeString(
-    process.env.ONSHAPE_SCOPES ?? "OAuth2ReadPII OAuth2Read",
+    process.env.ONSHAPE_SCOPES ?? "OAuth2ReadPII OAuth2Read OAuth2Write",
   );
 }
 
