@@ -78,6 +78,7 @@ interface OnshapeElement {
 
 interface OnshapeTranslationResponse {
   id: string;
+  requestId?: string;
   requestState?: string;
   resultExternalDataIds?: unknown;
   resultElementIds?: unknown;
@@ -113,6 +114,8 @@ interface OnshapeMetadataOptions {
   includeBom?: boolean;
   includeDrawing?: boolean;
   accessToken?: string;
+  fallbackPartName?: string;
+  fallbackPartNumber?: string;
 }
 
 function clientId() {
@@ -1250,7 +1253,9 @@ function drawingViewsReferenceMatch(input: {
       "idtag",
       "idtags",
       "modelpartid",
+      "modelreferenceid",
       "referencepartid",
+      "referenceid",
       "sourcepartid",
     ]),
   );
@@ -1401,6 +1406,16 @@ function firstTranslationResultId(value: unknown): string {
     }
   }
 
+  const record = asRecord(value);
+  if (record) {
+    for (const item of Object.values(record)) {
+      const found = firstTranslationResultId(item);
+      if (found) {
+        return found;
+      }
+    }
+  }
+
   return "";
 }
 
@@ -1455,8 +1470,13 @@ async function exportDrawingPdf(input: {
     },
     input.server,
   );
+  const translationId = normalizeString(translation.id || translation.requestId);
+  if (!translationId) {
+    throw new Error("Onshape drawing PDF export did not return a translation id.");
+  }
+
   const finished = await waitForTranslation(
-    translation.id,
+    translationId,
     input.accessToken,
     input.server,
   );
@@ -1471,6 +1491,8 @@ async function exportDrawingPdf(input: {
   const blobWvm = resultWorkspaceId ? "w" : input.wvm;
   const blobWvmId = resultWorkspaceId || input.wvmId;
   const resultIds = [
+    firstTranslationResultId(translation.resultElementIds),
+    firstTranslationResultId(translation.resultExternalDataIds),
     firstTranslationResultId(finished.resultElementIds),
     firstTranslationResultId(finished.resultExternalDataIds),
   ].filter(Boolean);
@@ -1481,6 +1503,7 @@ async function exportDrawingPdf(input: {
       `/v6/blobelements/d/${resultDocumentId}/${blobWvm}/${blobWvmId}/e/${resultId}`,
       `/v6/blobelements/d/${input.documentId}/${input.wvm}/${input.wvmId}/e/${resultId}`,
       `/v6/drawings/d/${input.documentId}/externaldata/${resultId}`,
+      `/v6/documents/d/${resultDocumentId}/externaldata/${resultId}`,
       `/v6/documents/d/${input.documentId}/externaldata/${resultId}`,
     ];
 
@@ -1678,9 +1701,13 @@ export async function fetchOnshapePartMetadata(
     }
 
     const defaults = partToDefaults(part, metadata);
+    defaults.partName ||= normalizeString(options.fallbackPartName);
+    defaults.partNumber ||= normalizeString(options.fallbackPartNumber);
+
     const includeBom = options.includeBom ?? true;
     const includeDrawing = options.includeDrawing ?? true;
     const needsBom = includeBom && (!defaults.partNumber || !defaults.material);
+    const drawingHasPartNumber = Boolean(defaults.partNumber);
     const bomDefaultsPromise: Promise<
       Pick<SubmissionInput, "material" | "partNumber">
     > = needsBom
@@ -1691,19 +1718,17 @@ export async function fetchOnshapePartMetadata(
           partName: defaults.partName ?? "",
         })
       : Promise.resolve({});
-    const drawingPromise: Promise<OnshapeElement | null> = includeDrawing
-      ? findSinglePartDrawing({
-          accessToken,
-          context,
-          partId: context.partId || normalizeString(part?.partId),
-          partName: defaults.partName ?? "",
-          partNumber: defaults.partNumber ?? "",
-        })
-      : Promise.resolve(null);
-    const [bomDefaults, drawing] = await Promise.all([
-      bomDefaultsPromise,
-      drawingPromise,
-    ]);
+    const drawingPromise: Promise<OnshapeElement | null> | null =
+      includeDrawing && drawingHasPartNumber
+        ? findSinglePartDrawing({
+            accessToken,
+            context,
+            partId: context.partId || normalizeString(part?.partId),
+            partName: defaults.partName ?? "",
+            partNumber: defaults.partNumber ?? "",
+          })
+        : null;
+    const bomDefaults = await bomDefaultsPromise;
 
     if (!defaults.partNumber && bomDefaults.partNumber) {
       defaults.partNumber = bomDefaults.partNumber;
@@ -1712,6 +1737,18 @@ export async function fetchOnshapePartMetadata(
     if (!defaults.material && bomDefaults.material) {
       defaults.material = bomDefaults.material;
     }
+
+    const drawing = drawingPromise
+      ? await drawingPromise
+      : includeDrawing
+        ? await findSinglePartDrawing({
+            accessToken,
+            context,
+            partId: context.partId || normalizeString(part?.partId),
+            partName: defaults.partName ?? "",
+            partNumber: defaults.partNumber ?? "",
+          })
+        : null;
 
     const drawingElementId = normalizeString(drawing?.id);
     if (drawingElementId) {

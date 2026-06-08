@@ -263,6 +263,7 @@ export async function loadOnshapePanelData(
   const includeFieldOptions = options.includeFieldOptions ?? true;
   const includeMetadata = options.includeMetadata ?? true;
   const includeUser = options.includeUser ?? true;
+  const panelDefaults = defaultsFromPanelParams(params);
   const onshapeServer =
     normalizeOnshapeServer(firstPanelParam(params.server)) || undefined;
   const [onshapeUser, onshapeMetadata, fieldOptions] = await Promise.all([
@@ -280,6 +281,8 @@ export async function loadOnshapePanelData(
             accessToken: options.accessToken,
             includeBom: options.includeBom,
             includeDrawing: options.includeDrawing,
+            fallbackPartName: panelDefaults.partName,
+            fallbackPartNumber: panelDefaults.partNumber,
           },
         )
       : Promise.resolve<OnshapeMetadataResult>({ defaults: {} }),
@@ -290,7 +293,7 @@ export async function loadOnshapePanelData(
 
   return {
     defaults: mergeAutofillDefaults(
-      mergeAutofillDefaults(defaultsFromPanelParams(params), onshapeUser.defaults),
+      mergeAutofillDefaults(panelDefaults, onshapeUser.defaults),
       onshapeMetadata.defaults,
     ),
     fieldOptions,
