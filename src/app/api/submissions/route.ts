@@ -36,7 +36,7 @@ function drawingPdfWarning(error: unknown) {
   if (message.includes("failed (403)")) {
     return [
       "Onshape drawing link was saved, but the PDF could not be exported.",
-      "The Onshape OAuth app likely needs document write/export permission and the user must reauthorize.",
+      `Onshape returned 403 during export. Details: ${message}`,
     ].join(" ");
   }
 
@@ -68,6 +68,7 @@ export async function POST(req: Request) {
           input.attachments = [...(input.attachments ?? []), drawingAttachment];
         }
       } catch (error) {
+        console.error("Onshape drawing PDF export failed", error);
         warnings.push(drawingPdfWarning(error));
       }
     }

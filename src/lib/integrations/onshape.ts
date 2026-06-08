@@ -1577,26 +1577,47 @@ async function exportDrawingPdf(input: {
   drawingElementId: string;
   server?: string;
 }) {
-  const translation = await onshapePostJson<OnshapeTranslationResponse>(
-    `/v6/drawings/d/${input.documentId}/${input.wvm}/${input.wvmId}/e/${input.drawingElementId}/translations`,
-    input.accessToken,
-    {
-      formatName: "PDF",
-      storeInDocument: false,
-      translate: true,
-    },
-    input.server,
-  );
+  const translationPath = `/v6/drawings/d/${input.documentId}/${input.wvm}/${input.wvmId}/e/${input.drawingElementId}/translations`;
+  let translation: OnshapeTranslationResponse;
+  try {
+    translation = await onshapePostJson<OnshapeTranslationResponse>(
+      translationPath,
+      input.accessToken,
+      {
+        formatName: "PDF",
+        storeInDocument: false,
+        translate: true,
+      },
+      input.server,
+    );
+  } catch (error) {
+    throw new Error(
+      `Onshape drawing PDF export could not start at ${translationPath}: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
+  }
+
   const translationId = normalizeString(translation.id || translation.requestId);
   if (!translationId) {
     throw new Error("Onshape drawing PDF export did not return a translation id.");
   }
 
-  const finished = await waitForTranslation(
-    translationId,
-    input.accessToken,
-    input.server,
-  );
+  let finished: OnshapeTranslationResponse;
+  try {
+    finished = await waitForTranslation(
+      translationId,
+      input.accessToken,
+      input.server,
+    );
+  } catch (error) {
+    throw new Error(
+      `Onshape drawing PDF export translation ${translationId} could not finish: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
+  }
+
   const resultDocumentId =
     normalizeString(finished.resultDocumentId) ||
     normalizeString(finished.documentId) ||
@@ -1614,6 +1635,12 @@ async function exportDrawingPdf(input: {
     firstTranslationResultId(finished.resultExternalDataIds),
   ].filter(Boolean);
   const errors: string[] = [];
+
+  if (resultIds.length === 0) {
+    throw new Error(
+      `Onshape drawing PDF export translation ${translationId} finished but returned no result file IDs.`,
+    );
+  }
 
   for (const resultId of resultIds) {
     const candidatePaths = [
@@ -1634,7 +1661,9 @@ async function exportDrawingPdf(input: {
   }
 
   throw new Error(
-    errors[0] || "Onshape drawing PDF export did not return a file.",
+    `Onshape drawing PDF export result could not be downloaded. First error: ${
+      errors[0] || "No download response was attempted."
+    }`,
   );
 }
 
