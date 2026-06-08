@@ -21,7 +21,10 @@ function defaultUploadDir() {
 const uploadDir = defaultUploadDir();
 
 function blobStorageEnabled() {
-  return Boolean(process.env.BLOB_READ_WRITE_TOKEN);
+  return Boolean(
+    process.env.BLOB_READ_WRITE_TOKEN ||
+      (process.env.BLOB_STORE_ID && (process.env.VERCEL || process.env.VERCEL_OIDC_TOKEN)),
+  );
 }
 
 function safeFilename(filename: string) {
