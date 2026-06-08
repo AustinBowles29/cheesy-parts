@@ -81,6 +81,10 @@ interface OnshapeTranslationResponse {
   requestState?: string;
   resultExternalDataIds?: unknown;
   resultElementIds?: unknown;
+  documentId?: string;
+  resultDocumentId?: string;
+  resultWorkspaceId?: string;
+  workspaceId?: string;
   failureReason?: string | null;
 }
 
@@ -1447,6 +1451,7 @@ async function exportDrawingPdf(input: {
     {
       formatName: "PDF",
       storeInDocument: false,
+      translate: true,
     },
     input.server,
   );
@@ -1455,25 +1460,42 @@ async function exportDrawingPdf(input: {
     input.accessToken,
     input.server,
   );
-  const externalDataId = firstTranslationResultId(finished.resultExternalDataIds);
-  if (externalDataId) {
-    return onshapeFetchBytes(
-      `/v6/documents/d/${input.documentId}/externaldata/${externalDataId}`,
-      input.accessToken,
-      input.server,
-    );
+  const resultDocumentId =
+    normalizeString(finished.resultDocumentId) ||
+    normalizeString(finished.documentId) ||
+    input.documentId;
+  const resultWorkspaceId =
+    normalizeString(finished.resultWorkspaceId) ||
+    normalizeString(finished.workspaceId) ||
+    (input.wvm === "w" ? input.wvmId : "");
+  const blobWvm = resultWorkspaceId ? "w" : input.wvm;
+  const blobWvmId = resultWorkspaceId || input.wvmId;
+  const resultIds = [
+    firstTranslationResultId(finished.resultElementIds),
+    firstTranslationResultId(finished.resultExternalDataIds),
+  ].filter(Boolean);
+  const errors: string[] = [];
+
+  for (const resultId of resultIds) {
+    const candidatePaths = [
+      `/v6/blobelements/d/${resultDocumentId}/${blobWvm}/${blobWvmId}/e/${resultId}`,
+      `/v6/blobelements/d/${input.documentId}/${input.wvm}/${input.wvmId}/e/${resultId}`,
+      `/v6/drawings/d/${input.documentId}/externaldata/${resultId}`,
+      `/v6/documents/d/${input.documentId}/externaldata/${resultId}`,
+    ];
+
+    for (const path of Array.from(new Set(candidatePaths))) {
+      try {
+        return await onshapeFetchBytes(path, input.accessToken, input.server);
+      } catch (error) {
+        errors.push(error instanceof Error ? error.message : String(error));
+      }
+    }
   }
 
-  const resultElementId = firstTranslationResultId(finished.resultElementIds);
-  if (resultElementId) {
-    return onshapeFetchBytes(
-      `/v6/blobelements/d/${input.documentId}/${input.wvm}/${input.wvmId}/e/${resultElementId}`,
-      input.accessToken,
-      input.server,
-    );
-  }
-
-  throw new Error("Onshape drawing PDF export did not return a file.");
+  throw new Error(
+    errors[0] || "Onshape drawing PDF export did not return a file.",
+  );
 }
 
 export async function createOnshapeDrawingPdfAttachment(

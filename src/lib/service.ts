@@ -230,11 +230,17 @@ export async function createManufacturingRequest(
             category: request.category,
           },
         );
-        request = {
-          ...request,
-          slackChannelId: persisted?.slackChannelId ?? request.slackChannelId,
-          slackMessageTs: persisted?.slackMessageTs ?? request.slackMessageTs,
-        };
+        if (persisted) {
+          request = {
+            ...request,
+            slackChannelId: persisted.slackChannelId ?? request.slackChannelId,
+            slackMessageTs: persisted.slackMessageTs ?? request.slackMessageTs,
+          };
+        } else {
+          warnings.push(
+            "Slack status updates cannot thread until Airtable has text fields named Slack Channel ID and Slack Message TS.",
+          );
+        }
       } catch (error) {
         warnings.push(
           error instanceof Error
@@ -245,6 +251,11 @@ export async function createManufacturingRequest(
     }
 
     await upsertLocalRequest(request);
+  }
+  if (!submissionNotification?.messageTs) {
+    warnings.push(
+      "Slack did not return a message timestamp, so status updates cannot thread under the original request.",
+    );
   }
 
   if (is3DPrint(request.machineType)) {
