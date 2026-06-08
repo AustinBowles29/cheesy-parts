@@ -61,6 +61,17 @@ function toastForWarning(warning: string) {
     };
   }
 
+  if (
+    normalizedWarning.includes("slack") &&
+    normalizedWarning.includes("thread")
+  ) {
+    return {
+      variant: "info" as const,
+      title: "Slack threading not configured",
+      message: warning,
+    };
+  }
+
   if (normalizedWarning.includes("slack")) {
     return {
       variant: "warning" as const,
@@ -158,8 +169,6 @@ export function OnshapeSubmissionPanel({
         defaults.onshapeWvm,
         defaults.onshapeWvmId,
         defaults.onshapePartUrl,
-        defaults.partName,
-        defaults.partNumber,
       ]
         .map((value) => String(value ?? ""))
         .join("|"),
@@ -168,8 +177,6 @@ export function OnshapeSubmissionPanel({
       defaults.onshapePartUrl,
       defaults.onshapeWvm,
       defaults.onshapeWvmId,
-      defaults.partName,
-      defaults.partNumber,
     ],
   );
   const selectedContextKeyRef = useRef(selectedContextKey);
@@ -369,6 +376,15 @@ export function OnshapeSubmissionPanel({
           title: "Slack not configured",
           message:
             "Submissions will still be saved, but Slack notifications will not be sent.",
+        });
+      } else if (
+        normalizedWarning.includes("slack") &&
+        normalizedWarning.includes("thread")
+      ) {
+        addToast({
+          variant: "info",
+          title: "Slack threading not configured",
+          message: warning,
         });
       } else if (normalizedWarning.includes("slack")) {
         addToast({

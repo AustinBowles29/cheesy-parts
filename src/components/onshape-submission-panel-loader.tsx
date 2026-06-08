@@ -79,47 +79,67 @@ function headersForAccessToken(accessToken: string) {
 function mergeDefaults(
   current: SubmissionInput,
   incoming: SubmissionInput | undefined,
+  options: { preferIncoming?: boolean } = {},
 ) {
   if (!incoming) {
     return current;
   }
 
+  const mergeValue = <T,>(currentValue: T | undefined, incomingValue: T | undefined) =>
+    options.preferIncoming
+      ? incomingValue || currentValue
+      : currentValue || incomingValue;
+
   return {
     ...current,
-    airtableTableId: current.airtableTableId || incoming.airtableTableId,
-    airtableTableName: current.airtableTableName || incoming.airtableTableName,
-    partName: current.partName || incoming.partName,
-    partNumber: current.partNumber || incoming.partNumber,
-    notes: current.notes || incoming.notes || incoming.description,
-    material: current.material || incoming.material,
-    thickness: current.thickness || incoming.thickness,
-    quantity: current.quantity || incoming.quantity,
-    subsystem: current.subsystem || incoming.subsystem,
-    machineType: current.machineType || incoming.machineType,
-    submitter: current.submitter || incoming.submitter,
-    onshapePartUrl: current.onshapePartUrl || incoming.onshapePartUrl,
-    onshapeDrawingUrl: current.onshapeDrawingUrl || incoming.onshapeDrawingUrl,
+    airtableTableId: mergeValue(current.airtableTableId, incoming.airtableTableId),
+    airtableTableName: mergeValue(
+      current.airtableTableName,
+      incoming.airtableTableName,
+    ),
+    partName: mergeValue(current.partName, incoming.partName),
+    partNumber: mergeValue(current.partNumber, incoming.partNumber),
+    notes: mergeValue(current.notes, incoming.notes || incoming.description),
+    material: mergeValue(current.material, incoming.material),
+    thickness: mergeValue(current.thickness, incoming.thickness),
+    quantity: mergeValue(current.quantity, incoming.quantity),
+    subsystem: mergeValue(current.subsystem, incoming.subsystem),
+    machineType: mergeValue(current.machineType, incoming.machineType),
+    submitter: mergeValue(current.submitter, incoming.submitter),
+    onshapePartUrl: mergeValue(current.onshapePartUrl, incoming.onshapePartUrl),
+    onshapeDrawingUrl: mergeValue(
+      current.onshapeDrawingUrl,
+      incoming.onshapeDrawingUrl,
+    ),
     onshapeDrawingElementId:
-      current.onshapeDrawingElementId || incoming.onshapeDrawingElementId,
-    onshapeDocumentId: current.onshapeDocumentId || incoming.onshapeDocumentId,
-    onshapeServer: current.onshapeServer || incoming.onshapeServer,
-    onshapeWvm: current.onshapeWvm || incoming.onshapeWvm,
-    onshapeWvmId: current.onshapeWvmId || incoming.onshapeWvmId,
-    assemblyUrl: current.assemblyUrl || incoming.assemblyUrl,
-    branchVersionReference:
-      current.branchVersionReference || incoming.branchVersionReference,
-    finish: current.finish || incoming.finish,
-    priority: current.priority || incoming.priority,
-    printMaterial: current.printMaterial || incoming.printMaterial,
-    printColor: current.printColor || incoming.printColor,
-    infill: current.infill || incoming.infill,
-    layerHeight: current.layerHeight || incoming.layerHeight,
-    printerNotes: current.printerNotes || incoming.printerNotes,
-    vendorName: current.vendorName || incoming.vendorName,
-    quoteRequired: current.quoteRequired || incoming.quoteRequired,
-    leadTime: current.leadTime || incoming.leadTime,
-    vendorNotes: current.vendorNotes || incoming.vendorNotes,
-    sourceDocument: current.sourceDocument || incoming.sourceDocument,
+      mergeValue(
+        current.onshapeDrawingElementId,
+        incoming.onshapeDrawingElementId,
+      ),
+    onshapeDocumentId: mergeValue(
+      current.onshapeDocumentId,
+      incoming.onshapeDocumentId,
+    ),
+    onshapeServer: mergeValue(current.onshapeServer, incoming.onshapeServer),
+    onshapeWvm: mergeValue(current.onshapeWvm, incoming.onshapeWvm),
+    onshapeWvmId: mergeValue(current.onshapeWvmId, incoming.onshapeWvmId),
+    assemblyUrl: mergeValue(current.assemblyUrl, incoming.assemblyUrl),
+    branchVersionReference: mergeValue(
+      current.branchVersionReference,
+      incoming.branchVersionReference,
+    ),
+    finish: mergeValue(current.finish, incoming.finish),
+    priority: mergeValue(current.priority, incoming.priority),
+    printMaterial: mergeValue(current.printMaterial, incoming.printMaterial),
+    printColor: mergeValue(current.printColor, incoming.printColor),
+    infill: mergeValue(current.infill, incoming.infill),
+    layerHeight: mergeValue(current.layerHeight, incoming.layerHeight),
+    printerNotes: mergeValue(current.printerNotes, incoming.printerNotes),
+    vendorName: mergeValue(current.vendorName, incoming.vendorName),
+    quoteRequired: mergeValue(current.quoteRequired, incoming.quoteRequired),
+    leadTime: mergeValue(current.leadTime, incoming.leadTime),
+    vendorNotes: mergeValue(current.vendorNotes, incoming.vendorNotes),
+    sourceDocument: mergeValue(current.sourceDocument, incoming.sourceDocument),
   };
 }
 
@@ -218,7 +238,9 @@ export function OnshapeSubmissionPanelLoader({
       );
       setPanelData((current) => {
         const nextPanelData = {
-          defaults: mergeDefaults(current.defaults, body.defaults),
+          defaults: mergeDefaults(current.defaults, body.defaults, {
+            preferIncoming: true,
+          }),
           fieldOptions: hasFieldOptions(body.fieldOptions)
             ? body.fieldOptions
             : current.fieldOptions,
