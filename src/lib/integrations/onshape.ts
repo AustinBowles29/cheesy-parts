@@ -1703,12 +1703,20 @@ export async function fetchOnshapePartMetadata(
 
     return { defaults };
   } catch (error) {
+    const warning =
+      error instanceof Error ? error.message : "Onshape metadata could not be loaded.";
+    const authFailed =
+      warning.includes("failed (401)") ||
+      warning.includes("failed (403)") ||
+      warning.toLowerCase().includes("invalid") ||
+      warning.toLowerCase().includes("permission");
+
     return {
       defaults: {},
-      warning:
-        error instanceof Error
-          ? error.message
-          : "Onshape metadata could not be loaded.",
+      authUrl: authFailed ? onshapeOAuthStartUrl(returnTo) : undefined,
+      warning: authFailed
+        ? "Reconnect Onshape to refresh permissions for part metadata and drawing PDF export."
+        : warning,
     };
   }
 }

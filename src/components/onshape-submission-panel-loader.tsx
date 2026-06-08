@@ -222,12 +222,12 @@ export function OnshapeSubmissionPanelLoader({
           fieldOptions: hasFieldOptions(body.fieldOptions)
             ? body.fieldOptions
             : current.fieldOptions,
-          onshapeAuthUrl: hasOnshapeDefaults
-            ? undefined
-            : body.onshapeAuthUrl ?? current.onshapeAuthUrl,
-          onshapeWarning: hasOnshapeDefaults
-            ? undefined
-            : body.onshapeWarning ?? current.onshapeWarning,
+          onshapeAuthUrl:
+            body.onshapeAuthUrl ??
+            (hasOnshapeDefaults ? undefined : current.onshapeAuthUrl),
+          onshapeWarning:
+            body.onshapeWarning ??
+            (hasOnshapeDefaults ? undefined : current.onshapeWarning),
         };
 
         rememberOnshapePanelData(panelDataUrl, {
