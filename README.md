@@ -246,6 +246,8 @@ Recommended env vars:
 - `SLACK_ONSHAPE_COMMENTS_CHANNEL_ID`
 - `ONSHAPE_WEBHOOK_SERVER`
 - `ONSHAPE_COMMENT_SLACK_USER_MAP`
+- `ONSHAPE_API_ACCESS_KEY`
+- `ONSHAPE_API_SECRET_KEY`
 
 `ONSHAPE_COMMENT_SLACK_USER_MAP` is optional and can force Onshape names or
 emails to Slack IDs:
@@ -256,6 +258,14 @@ emails to Slack IDs:
 
 If no comment-specific Slack channel is configured, the app falls back to the
 existing design/manufacturing Slack channel settings.
+
+Onshape comment webhooks may only include the event and comment id. To include
+the actual comment text, author, and mentions in Slack, configure server-side
+Onshape API credentials with `ONSHAPE_API_ACCESS_KEY` and
+`ONSHAPE_API_SECRET_KEY`; requests are signed with Onshape API-key auth. As a
+fallback, the route also accepts a bearer token from
+`ONSHAPE_WEBHOOK_ACCESS_TOKEN`, `ONSHAPE_SERVICE_ACCESS_TOKEN`, or
+`ONSHAPE_ACCESS_TOKEN`, or a pre-encoded `ONSHAPE_API_BASIC_AUTH` value.
 
 ## File Storage
 

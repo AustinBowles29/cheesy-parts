@@ -1,3 +1,4 @@
+import { createHmac, randomBytes } from "node:crypto";
 import { normalizeString } from "../manufacturing";
 import { normalizeOnshapeServer } from "./onshape";
 
@@ -259,6 +260,209 @@ function documentUrl(input: {
   return input.elementId ? `${url}/e/${encodeURIComponent(input.elementId)}` : url;
 }
 
+function firstString(...values: string[]) {
+  return values.find((value) => normalizeString(value)) ?? "";
+}
+
+function onshapeSignedAuthHeaders(input: {
+  method: string;
+  url: string;
+  contentType: string;
+}) {
+  const accessKey = normalizeString(
+    process.env.ONSHAPE_API_ACCESS_KEY ?? process.env.ONSHAPE_ACCESS_KEY,
+  );
+  const secretKey = normalizeString(
+    process.env.ONSHAPE_API_SECRET_KEY ?? process.env.ONSHAPE_SECRET_KEY,
+  );
+  if (!accessKey || !secretKey) {
+    return null;
+  }
+
+  const nonce = randomBytes(16).toString("hex");
+  const date = new Date().toUTCString();
+  const parsedUrl = new URL(input.url);
+  const signingString = `${input.method}\n${nonce}\n${date}\n${input.contentType}\n${parsedUrl.pathname}\n${parsedUrl.search.slice(
+    1,
+  )}\n`.toLowerCase();
+  const signature = createHmac("sha256", secretKey)
+    .update(signingString)
+    .digest("base64");
+
+  return {
+    Authorization: `On ${accessKey}:HmacSHA256:${signature}`,
+    Date: date,
+    "On-Nonce": nonce,
+  };
+}
+
+function onshapeCommentAuthHeaders(input: {
+  method: string;
+  url: string;
+  contentType: string;
+}) {
+  const bearerToken = normalizeString(
+    process.env.ONSHAPE_WEBHOOK_ACCESS_TOKEN ??
+      process.env.ONSHAPE_SERVICE_ACCESS_TOKEN ??
+      process.env.ONSHAPE_ACCESS_TOKEN,
+  );
+  if (bearerToken) {
+    return { Authorization: `Bearer ${bearerToken}` };
+  }
+
+  const signedHeaders = onshapeSignedAuthHeaders(input);
+  if (signedHeaders) {
+    return signedHeaders;
+  }
+
+  const basicAuth = normalizeString(
+    process.env.ONSHAPE_API_BASIC_AUTH ?? process.env.ONSHAPE_BASIC_AUTH,
+  );
+  if (basicAuth) {
+    return { Authorization: `Basic ${basicAuth}` };
+  }
+
+  return null;
+}
+
+function serverFromNotification(notification: OnshapeCommentNotification) {
+  try {
+    const url = new URL(notification.documentUrl);
+    const server = normalizeOnshapeServer(url.origin);
+    if (server) {
+      return server;
+    }
+  } catch {
+    // Fall through to configured defaults.
+  }
+
+  return (
+    normalizeOnshapeServer(process.env.ONSHAPE_WEBHOOK_SERVER) ||
+    normalizeOnshapeServer(process.env.ONSHAPE_ENTERPRISE_URL) ||
+    normalizeOnshapeServer(process.env.ONSHAPE_API_BASE_URL) ||
+    "https://cad.onshape.com"
+  );
+}
+
+function commentDetailUrls(notification: OnshapeCommentNotification) {
+  const server = serverFromNotification(notification);
+  const commentId = encodeURIComponent(notification.commentId);
+
+  return [
+    `${server}/api/v16/comments/${commentId}`,
+    `${server}/api/comments/${commentId}`,
+  ];
+}
+
+async function fetchOnshapeCommentDetails(
+  notification: OnshapeCommentNotification,
+) {
+  if (!notification.commentId) {
+    return null;
+  }
+
+  let lastError = "";
+  for (const url of commentDetailUrls(notification)) {
+    const method = "GET";
+    const contentType = "application/json;charset=UTF-8; qs=0.09";
+    const authHeaders = onshapeCommentAuthHeaders({
+      method,
+      url,
+      contentType,
+    });
+    if (!authHeaders) {
+      return null;
+    }
+
+    const response = await fetch(url, {
+      headers: {
+        Accept: "application/json;charset=UTF-8; qs=0.09",
+        "Content-Type": contentType,
+        ...authHeaders,
+      },
+      cache: "no-store",
+    });
+
+    if (response.ok) {
+      return (await response.json()) as unknown;
+    }
+
+    const body = await response.text();
+    lastError = `Onshape comment detail request failed (${response.status}) at ${url}: ${body}`;
+
+    if (response.status !== 404) {
+      break;
+    }
+  }
+
+  throw new Error(lastError || "Onshape comment detail request failed.");
+}
+
+function commentTextFromDetails(details: unknown) {
+  return deepString(details, [
+    "commentText",
+    "plainText",
+    "body",
+    "text",
+    "message",
+    "content",
+    "description",
+  ]);
+}
+
+function authorBranchFromDetails(details: unknown) {
+  const record = asRecord(details);
+  return (
+    asRecord(record?.createdBy) ??
+    asRecord(record?.creator) ??
+    asRecord(record?.author) ??
+    asRecord(record?.user) ??
+    asRecord(record?.owner)
+  );
+}
+
+function authorNameFromDetails(details: unknown) {
+  const authorBranch = authorBranchFromDetails(details);
+  return (
+    directString(authorBranch, [
+      "displayName",
+      "name",
+      "userName",
+      "username",
+      "email",
+    ]) ||
+    deepString(details, [
+      "createdByName",
+      "authorName",
+      "creatorName",
+      "userName",
+      "username",
+    ])
+  );
+}
+
+function authorEmailFromDetails(details: unknown) {
+  const authorBranch = authorBranchFromDetails(details);
+  return (
+    directString(authorBranch, ["email", "emailAddress"]) ||
+    deepString(details, ["createdByEmail", "authorEmail", "creatorEmail", "email"])
+  );
+}
+
+function documentUrlFromDetails(
+  details: unknown,
+  fallback: OnshapeCommentNotification,
+) {
+  const explicitUrl =
+    directString(asRecord(details), ["documentUrl", "documentHref"]) ||
+    deepString(details, ["documentUrl", "documentHref"]);
+  if (explicitUrl) {
+    return explicitUrl;
+  }
+
+  return fallback.documentUrl;
+}
+
 export function isOnshapeCommentEvent(event: string) {
   return commentEvents.has(event);
 }
@@ -347,4 +551,37 @@ export function onshapeCommentNotificationFromPayload(
 
 export function onshapeCommentActionLabel(event: string) {
   return eventDisplayText(event);
+}
+
+export async function enrichOnshapeCommentNotification(
+  notification: OnshapeCommentNotification,
+): Promise<OnshapeCommentNotification> {
+  const details = await fetchOnshapeCommentDetails(notification);
+  if (!details) {
+    return notification;
+  }
+
+  const commentText = firstString(
+    notification.commentText,
+    commentTextFromDetails(details),
+  );
+  const mentionCandidates = Array.from(
+    new Set([
+      ...notification.mentionCandidates,
+      ...collectMentionCandidates(details),
+      ...mentionTextCandidates(commentText),
+    ]),
+  );
+
+  return {
+    ...notification,
+    commentText,
+    authorName: firstString(notification.authorName, authorNameFromDetails(details)),
+    authorEmail: firstString(
+      notification.authorEmail,
+      authorEmailFromDetails(details),
+    ),
+    documentUrl: documentUrlFromDetails(details, notification),
+    mentionCandidates,
+  };
 }

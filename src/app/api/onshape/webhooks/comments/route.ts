@@ -1,4 +1,5 @@
 import {
+  enrichOnshapeCommentNotification,
   isOnshapeCommentEvent,
   onshapeCommentNotificationFromPayload,
 } from "@/lib/integrations/onshape-comments";
@@ -75,7 +76,7 @@ export async function POST(req: Request) {
     return Response.json({ ok: true, ignored: true, event });
   }
 
-  const notification = onshapeCommentNotificationFromPayload(body);
+  let notification = onshapeCommentNotificationFromPayload(body);
   if (!notification) {
     return Response.json({
       ok: true,
@@ -99,6 +100,17 @@ export async function POST(req: Request) {
     return Response.json({ ok: true, duplicate: true, event });
   }
 
+  let enrichmentWarning = "";
+  try {
+    notification = await enrichOnshapeCommentNotification(notification);
+  } catch (error) {
+    enrichmentWarning =
+      error instanceof Error
+        ? error.message
+        : "Onshape comment details could not be fetched.";
+    console.warn("Onshape comment detail enrichment failed", error);
+  }
+
   try {
     const slackResult = await notifyOnshapeComment(notification);
     const slackWarning = typeof slackResult === "string" ? slackResult : "";
@@ -108,7 +120,7 @@ export async function POST(req: Request) {
       event,
       notified: !slackWarning,
       slackResult,
-      warning: slackWarning || undefined,
+      warning: slackWarning || enrichmentWarning || undefined,
     });
   } catch (error) {
     console.error("Onshape comment Slack notification failed", error);
