@@ -31,6 +31,24 @@ interface SlackUserInfoResponse extends SlackApiResponse {
   };
 }
 
+interface SlackUsersListResponse extends SlackApiResponse {
+  members?: Array<{
+    id: string;
+    name?: string;
+    real_name?: string;
+    deleted?: boolean;
+    is_bot?: boolean;
+    profile?: {
+      display_name?: string;
+      real_name?: string;
+      email?: string;
+    };
+  }>;
+  response_metadata?: {
+    next_cursor?: string;
+  };
+}
+
 const slackApiBase = "https://slack.com/api";
 const defaultUsergroupHandles = ["design", "design-rooks"];
 
@@ -156,6 +174,170 @@ async function getSlackUser(userId: string): Promise<SlackUser | null> {
     email: user.profile?.email,
     handle: user.name,
   };
+}
+
+function slackUserFromMember(
+  member: NonNullable<SlackUsersListResponse["members"]>[number],
+): SlackUser | null {
+  if (!member.id || member.deleted || member.is_bot) {
+    return null;
+  }
+
+  return {
+    slackUserId: member.id,
+    displayName:
+      member.profile?.display_name ||
+      member.profile?.real_name ||
+      member.real_name ||
+      member.name ||
+      member.id,
+    email: member.profile?.email,
+    handle: member.name,
+  };
+}
+
+function normalizeIdentity(value: unknown) {
+  return String(value ?? "")
+    .trim()
+    .replace(/^<@/, "")
+    .replace(/>$/, "")
+    .replace(/^@/, "")
+    .toLowerCase()
+    .replace(/\s+/g, " ");
+}
+
+function slackUserIdentityCandidates(user: SlackUser) {
+  const emailLocalPart = user.email?.split("@")[0];
+
+  return [
+    user.slackUserId,
+    user.displayName,
+    user.handle,
+    user.email,
+    emailLocalPart,
+  ]
+    .map(normalizeIdentity)
+    .filter(Boolean);
+}
+
+function configuredOnshapeSlackUserMap() {
+  const raw =
+    process.env.ONSHAPE_COMMENT_SLACK_USER_MAP ??
+    process.env.ONSHAPE_SLACK_USER_MAP;
+  const map = new Map<string, string>();
+
+  if (!raw) {
+    return map;
+  }
+
+  try {
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    for (const [identity, slackUserId] of Object.entries(parsed)) {
+      const key = normalizeIdentity(identity);
+      const value = normalizeIdentity(slackUserId);
+      if (key && value) {
+        map.set(key, value.toUpperCase());
+      }
+    }
+  } catch {
+    for (const entry of raw.split(/[;\n]/)) {
+      const [identity, slackUserId] = entry.split(":");
+      const key = normalizeIdentity(identity);
+      const value = normalizeIdentity(slackUserId);
+      if (key && value) {
+        map.set(key, value.toUpperCase());
+      }
+    }
+  }
+
+  return map;
+}
+
+export async function getWorkspaceSlackUsers() {
+  try {
+    const users: SlackUser[] = [];
+    let cursor = "";
+
+    do {
+      const response = await slackFetch<SlackUsersListResponse>("users.list", {
+        cursor,
+        limit: "200",
+      });
+      users.push(
+        ...(response.members ?? [])
+          .map(slackUserFromMember)
+          .filter((user): user is SlackUser => Boolean(user)),
+      );
+      cursor = response.response_metadata?.next_cursor ?? "";
+    } while (cursor);
+
+    if (users.length > 0) {
+      return users.sort((a, b) => a.displayName.localeCompare(b.displayName));
+    }
+  } catch {
+    // Fall back to configured design/manufacturing groups below.
+  }
+
+  return (await getManufacturingSlackUsers()).users;
+}
+
+export async function findSlackUsersByIdentity(candidates: unknown[]) {
+  const configuredMap = configuredOnshapeSlackUserMap();
+  const candidateSet = new Set(
+    candidates.map(normalizeIdentity).filter(Boolean),
+  );
+  const matchedIds = new Set<string>();
+  const matchedUsers: SlackUser[] = [];
+
+  for (const candidate of candidateSet) {
+    const mappedUserId = configuredMap.get(candidate);
+    if (mappedUserId) {
+      matchedIds.add(mappedUserId);
+    }
+  }
+
+  const users = await getWorkspaceSlackUsers();
+  for (const user of users) {
+    const identities = slackUserIdentityCandidates(user);
+    if (
+      matchedIds.has(user.slackUserId) ||
+      identities.some((identity) => candidateSet.has(identity))
+    ) {
+      matchedUsers.push(user);
+      matchedIds.add(user.slackUserId);
+    }
+  }
+
+  for (const slackUserId of matchedIds) {
+    if (!matchedUsers.some((user) => user.slackUserId === slackUserId)) {
+      matchedUsers.push({ slackUserId, displayName: slackUserId });
+    }
+  }
+
+  return matchedUsers;
+}
+
+export async function findSlackUsersMentionedInText(text: string) {
+  const normalizedText = normalizeIdentity(text);
+  if (!normalizedText) {
+    return [];
+  }
+
+  const users = await getWorkspaceSlackUsers();
+  return users.filter((user) => {
+    const candidates = slackUserIdentityCandidates(user);
+    return candidates.some((candidate) => {
+      if (!candidate) {
+        return false;
+      }
+
+      return (
+        normalizedText.includes(`<@${candidate}>`) ||
+        normalizedText.includes(`@${candidate}`) ||
+        normalizedText.includes(candidate.includes("@") ? candidate : `@${candidate}`)
+      );
+    });
+  });
 }
 
 export async function getManufacturingSlackUsers() {

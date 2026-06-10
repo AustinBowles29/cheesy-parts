@@ -224,6 +224,39 @@ POST /api/airtable/webhook?secret=<AIRTABLE_WEBHOOK_SECRET>
 The automation script should send the table ID/name, record ID, new status, and
 the user/source that changed it.
 
+## Onshape Comment Webhook
+
+Onshape comment notifications can be sent to Slack through:
+
+```text
+POST /api/onshape/webhooks/comments?secret=<ONSHAPE_COMMENT_WEBHOOK_SECRET>
+```
+
+Register this endpoint with Onshape for:
+
+```text
+onshape.comment.create
+onshape.comment.update
+onshape.comment.delete
+```
+
+Recommended env vars:
+
+- `ONSHAPE_COMMENT_WEBHOOK_SECRET`
+- `SLACK_ONSHAPE_COMMENTS_CHANNEL_ID`
+- `ONSHAPE_WEBHOOK_SERVER`
+- `ONSHAPE_COMMENT_SLACK_USER_MAP`
+
+`ONSHAPE_COMMENT_SLACK_USER_MAP` is optional and can force Onshape names or
+emails to Slack IDs:
+
+```json
+{"Austin Bowles":"U0123456789","austin@example.com":"U0123456789"}
+```
+
+If no comment-specific Slack channel is configured, the app falls back to the
+existing design/manufacturing Slack channel settings.
+
 ## File Storage
 
 Uploaded files are stored locally for development.

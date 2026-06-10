@@ -1,7 +1,13 @@
 import { isDrawingPdfAttachment } from "../attachments";
 import { normalizeString } from "../manufacturing";
-import type { ManufacturingRequest, ManufacturingStatus } from "../types";
-import { getManufacturingSlackUsers } from "./slack-users";
+import type { ManufacturingRequest, ManufacturingStatus, SlackUser } from "../types";
+import type { OnshapeCommentNotification } from "./onshape-comments";
+import { onshapeCommentActionLabel } from "./onshape-comments";
+import {
+  findSlackUsersByIdentity,
+  findSlackUsersMentionedInText,
+  getManufacturingSlackUsers,
+} from "./slack-users";
 
 interface SlackPayload {
   text: string;
@@ -60,6 +66,18 @@ function statusChannelId() {
 
 function printChannelId() {
   return process.env.SLACK_3DP_CHANNEL_ID ?? manufacturingChannelId();
+}
+
+function onshapeCommentsWebhookUrl() {
+  return process.env.SLACK_ONSHAPE_COMMENTS_WEBHOOK_URL;
+}
+
+function onshapeCommentsChannelId() {
+  return (
+    process.env.SLACK_ONSHAPE_COMMENTS_CHANNEL_ID ??
+    process.env.SLACK_DESIGN_CHANNEL_ID ??
+    manufacturingChannelId()
+  );
 }
 
 function firstConfiguredValue(keys: string[]) {
@@ -303,6 +321,15 @@ function slackLink(url: string, label: string) {
 
 function optionalSlackLink(url: string | undefined, label: string) {
   return url ? `<${url}|${label}>` : "";
+}
+
+function truncateSlackText(value: string, maxLength: number) {
+  const normalized = normalizeString(value);
+  if (normalized.length <= maxLength) {
+    return normalized;
+  }
+
+  return `${normalized.slice(0, Math.max(0, maxLength - 1)).trim()}...`;
 }
 
 function isLikelySlackUserId(value: string | undefined) {
@@ -603,6 +630,93 @@ export async function notify3DPrintSubmission(request: ManufacturingRequest) {
             {
               type: "mrkdwn",
               text: `*Drawing*\n${drawingText}`,
+            },
+          ],
+        },
+      ],
+    },
+  });
+}
+
+function uniqueSlackUsers(users: SlackUser[]) {
+  const seen = new Set<string>();
+  const uniqueUsers: SlackUser[] = [];
+
+  for (const user of users) {
+    if (!user.slackUserId || seen.has(user.slackUserId)) {
+      continue;
+    }
+
+    seen.add(user.slackUserId);
+    uniqueUsers.push(user);
+  }
+
+  return uniqueUsers;
+}
+
+export async function notifyOnshapeComment(input: OnshapeCommentNotification) {
+  const explicitMentionUsers = await findSlackUsersByIdentity(input.mentionCandidates);
+  const textMentionUsers = await findSlackUsersMentionedInText(input.commentText);
+  const mentionedUsers = uniqueSlackUsers([
+    ...explicitMentionUsers,
+    ...textMentionUsers,
+  ]);
+  const mentionText = mentionedUsers
+    .map((user) => `<@${user.slackUserId}>`)
+    .join(" ");
+  const action = onshapeCommentActionLabel(input.event);
+  const author =
+    input.authorName ||
+    input.authorEmail ||
+    (input.event === "onshape.comment.delete" ? "Someone" : "Unknown author");
+  const commentText =
+    truncateSlackText(input.commentText, 1200) ||
+    (input.event === "onshape.comment.delete"
+      ? "Comment deleted."
+      : "No comment text was included in the webhook payload.");
+  const fallbackTitle =
+    input.event === "onshape.comment.delete"
+      ? "Onshape comment deleted"
+      : "New Onshape comment";
+
+  return postSlack({
+    webhookUrl: onshapeCommentsWebhookUrl(),
+    channelId: onshapeCommentsChannelId(),
+    payload: {
+      text: `${fallbackTitle}: ${author} ${action} a comment${mentionText ? ` for ${mentionText}` : ""}`,
+      blocks: [
+        {
+          type: "section",
+          text: {
+            type: "mrkdwn",
+            text: `${mentionText ? `${mentionText}\n` : ""}*${fallbackTitle}*\n${author} ${action} a comment in Onshape.`,
+          },
+        },
+        {
+          type: "section",
+          text: {
+            type: "mrkdwn",
+            text: `>${commentText.replace(/\n/g, "\n>")}`,
+          },
+        },
+        {
+          type: "section",
+          fields: [
+            {
+              type: "mrkdwn",
+              text: `*Document*\n${optionalSlackLink(input.documentUrl, "Open in Onshape") || "Not available"}`,
+            },
+            {
+              type: "mrkdwn",
+              text: `*Event*\n${input.event}`,
+            },
+            {
+              type: "mrkdwn",
+              text: `*Comment ID*\n${input.commentId || "Not available"}`,
+            },
+            {
+              type: "mrkdwn",
+              text: `*Webhook message*\n${input.messageId || "Not available"}`,
             },
           ],
         },
