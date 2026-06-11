@@ -686,18 +686,78 @@ function slackUserMatchesOnshapeMention(user: SlackUser, input: {
   return mentionCandidates.some((candidate) => candidates.includes(candidate));
 }
 
-function formatOnshapeCommentText(text: string, mentionedUsers: SlackUser[]) {
-  return text.replace(/\[~([^:\]]+):([^\]]+)\]/g, (_match, onshapeUserId, name) => {
-    const matchedUser =
-      mentionedUsers.find((user) =>
-        slackUserMatchesOnshapeMention(user, {
-          onshapeUserId,
-          name,
-        }),
-      ) || (mentionedUsers.length === 1 ? mentionedUsers[0] : undefined);
+function configuredCommentUsergroupMap() {
+  const raw =
+    process.env.SLACK_COMMENT_USERGROUP_MAP ??
+    process.env.SLACK_COMMENT_USERGROUP_MENTIONS ??
+    process.env.ONSHAPE_COMMENT_SLACK_USERGROUP_MAP;
+  const map = new Map<string, string>();
 
-    return matchedUser?.slackUserId ? `<@${matchedUser.slackUserId}>` : `@${name}`;
-  });
+  if (!raw) {
+    return map;
+  }
+
+  const addEntry = (handle: string, value: unknown) => {
+    const normalizedHandle = normalizeUsergroupHandle(handle);
+    const normalizedValue = normalizeString(value);
+    if (!normalizedHandle || !normalizedValue) {
+      return;
+    }
+
+    const usergroupId = normalizeUsergroupId(normalizedValue);
+    map.set(
+      normalizedHandle.toLowerCase(),
+      `<!subteam^${usergroupId}|${normalizedHandle}>`,
+    );
+  };
+
+  try {
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    for (const [handle, value] of Object.entries(parsed)) {
+      addEntry(handle, value);
+    }
+  } catch {
+    for (const entry of raw.split(/[,\n;]/)) {
+      const [handle, ...valueParts] = entry.split(":");
+      addEntry(handle, valueParts.join(":"));
+    }
+  }
+
+  return map;
+}
+
+function formatCommentUsergroupMentions(text: string) {
+  const usergroupMap = configuredCommentUsergroupMap();
+  if (usergroupMap.size === 0) {
+    return text;
+  }
+
+  return text.replace(
+    /(^|[^\w<])@([A-Za-z0-9._-]+)(?=$|[^\w-])/g,
+    (match, prefix, handle) => {
+      const mention = usergroupMap.get(String(handle).toLowerCase());
+      return mention ? `${prefix}${mention}` : match;
+    },
+  );
+}
+
+function formatOnshapeCommentText(text: string, mentionedUsers: SlackUser[]) {
+  const withUserMentions = text.replace(
+    /\[~([^:\]]+):([^\]]+)\]/g,
+    (_match, onshapeUserId, name) => {
+      const matchedUser =
+        mentionedUsers.find((user) =>
+          slackUserMatchesOnshapeMention(user, {
+            onshapeUserId,
+            name,
+          }),
+        ) || (mentionedUsers.length === 1 ? mentionedUsers[0] : undefined);
+
+      return matchedUser?.slackUserId ? `<@${matchedUser.slackUserId}>` : `@${name}`;
+    },
+  );
+
+  return formatCommentUsergroupMentions(withUserMentions);
 }
 
 function onshapeCommentTitle(event: OnshapeCommentNotification["event"]) {
