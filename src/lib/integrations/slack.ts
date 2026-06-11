@@ -740,9 +740,17 @@ function onshapeCommentSummary(input: {
   return `${input.author} commented in Onshape`;
 }
 
+function slackMention(user: SlackUser | undefined) {
+  return user?.slackUserId ? `<@${user.slackUserId}>` : "";
+}
+
 export async function notifyOnshapeComment(input: OnshapeCommentNotification) {
   const explicitMentionUsers = await findSlackUsersByIdentity(input.mentionCandidates);
   const textMentionUsers = await findSlackUsersMentionedInText(input.commentText);
+  const authorUsers = await findSlackUsersByIdentity([
+    input.authorName,
+    input.authorEmail,
+  ]);
   const mentionedUsers = uniqueSlackUsers([
     ...explicitMentionUsers,
     ...textMentionUsers,
@@ -750,10 +758,11 @@ export async function notifyOnshapeComment(input: OnshapeCommentNotification) {
   const mentionText = mentionedUsers
     .map((user) => `<@${user.slackUserId}>`)
     .join(" ");
-  const author =
+  const authorFallback =
     input.authorName ||
     input.authorEmail ||
     (input.event === "onshape.comment.delete" ? "Someone" : "Unknown author");
+  const author = slackMention(authorUsers[0]) || authorFallback;
   const formattedCommentText =
     stripOnshapeMentionTokens(input.commentText) ||
     formatOnshapeCommentText(input.commentText, mentionedUsers);
