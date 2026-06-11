@@ -2,7 +2,6 @@ import { isDrawingPdfAttachment } from "../attachments";
 import { normalizeString } from "../manufacturing";
 import type { ManufacturingRequest, ManufacturingStatus, SlackUser } from "../types";
 import type { OnshapeCommentNotification } from "./onshape-comments";
-import { onshapeCommentActionLabel } from "./onshape-comments";
 import {
   findSlackUsersByIdentity,
   findSlackUsersMentionedInText,
@@ -701,6 +700,46 @@ function formatOnshapeCommentText(text: string, mentionedUsers: SlackUser[]) {
   });
 }
 
+function stripOnshapeMentionTokens(text: string) {
+  return text
+    .replace(/\[~[^:\]]+:[^\]]+\]/g, "")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+function onshapeCommentTitle(event: OnshapeCommentNotification["event"]) {
+  if (event === "onshape.comment.delete") {
+    return "Onshape comment deleted";
+  }
+
+  if (event === "onshape.comment.update") {
+    return "Onshape comment updated";
+  }
+
+  return "New Onshape comment";
+}
+
+function onshapeCommentSummary(input: {
+  event: OnshapeCommentNotification["event"];
+  author: string;
+  mentionText: string;
+}) {
+  if (input.event === "onshape.comment.delete") {
+    return "";
+  }
+
+  if (input.mentionText) {
+    return `${input.author} mentioned ${input.mentionText}`;
+  }
+
+  if (input.event === "onshape.comment.update") {
+    return `${input.author} updated a comment in Onshape`;
+  }
+
+  return `${input.author} commented in Onshape`;
+}
+
 export async function notifyOnshapeComment(input: OnshapeCommentNotification) {
   const explicitMentionUsers = await findSlackUsersByIdentity(input.mentionCandidates);
   const textMentionUsers = await findSlackUsersMentionedInText(input.commentText);
@@ -711,67 +750,70 @@ export async function notifyOnshapeComment(input: OnshapeCommentNotification) {
   const mentionText = mentionedUsers
     .map((user) => `<@${user.slackUserId}>`)
     .join(" ");
-  const action = onshapeCommentActionLabel(input.event);
   const author =
     input.authorName ||
     input.authorEmail ||
     (input.event === "onshape.comment.delete" ? "Someone" : "Unknown author");
-  const formattedCommentText = formatOnshapeCommentText(
-    input.commentText,
-    mentionedUsers,
-  );
+  const formattedCommentText =
+    stripOnshapeMentionTokens(input.commentText) ||
+    formatOnshapeCommentText(input.commentText, mentionedUsers);
   const commentText =
     truncateSlackText(formattedCommentText, 1200) ||
     (input.event === "onshape.comment.delete"
       ? "Comment deleted."
       : "No comment text was included in the webhook payload.");
-  const fallbackTitle =
+  const title = onshapeCommentTitle(input.event);
+  const summary = onshapeCommentSummary({
+    event: input.event,
+    author,
+    mentionText,
+  });
+  const openLink =
+    optionalSlackLink(input.documentUrl, "Open in Onshape") || "Open in Onshape";
+  const blocks =
     input.event === "onshape.comment.delete"
-      ? "Onshape comment deleted"
-      : "New Onshape comment";
+      ? [
+          {
+            type: "section",
+            text: {
+              type: "mrkdwn",
+              text: `*${title}*\n${openLink}`,
+            },
+          },
+        ]
+      : [
+          {
+            type: "section",
+            text: {
+              type: "mrkdwn",
+              text: `*${title}*\n${summary}`,
+            },
+          },
+          {
+            type: "section",
+            text: {
+              type: "mrkdwn",
+              text: `>${commentText.replace(/\n/g, "\n>")}`,
+            },
+          },
+          {
+            type: "section",
+            text: {
+              type: "mrkdwn",
+              text: openLink,
+            },
+          },
+        ];
 
   return postSlack({
     webhookUrl: onshapeCommentsWebhookUrl(),
     channelId: onshapeCommentsChannelId(),
     payload: {
-      text: `${fallbackTitle}: ${author} ${action} a comment${mentionText ? ` for ${mentionText}` : ""}`,
-      blocks: [
-        {
-          type: "section",
-          text: {
-            type: "mrkdwn",
-            text: `${mentionText ? `${mentionText}\n` : ""}*${fallbackTitle}*\n${author} ${action} a comment in Onshape.`,
-          },
-        },
-        {
-          type: "section",
-          text: {
-            type: "mrkdwn",
-            text: `>${commentText.replace(/\n/g, "\n>")}`,
-          },
-        },
-        {
-          type: "section",
-          fields: [
-            {
-              type: "mrkdwn",
-              text: `*Document*\n${optionalSlackLink(input.documentUrl, "Open in Onshape") || "Not available"}`,
-            },
-            {
-              type: "mrkdwn",
-              text: `*Event*\n${input.event}`,
-            },
-            {
-              type: "mrkdwn",
-              text: `*Comment ID*\n${input.commentId || "Not available"}`,
-            },
-            {
-              type: "mrkdwn",
-              text: `*Webhook message*\n${input.messageId || "Not available"}`,
-            },
-          ],
-        },
-      ],
+      text:
+        input.event === "onshape.comment.delete"
+          ? title
+          : `${title}: ${summary}`,
+      blocks,
     },
   });
 }
