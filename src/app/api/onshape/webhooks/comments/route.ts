@@ -3,7 +3,11 @@ import {
   isOnshapeCommentEvent,
   onshapeCommentNotificationFromPayload,
 } from "@/lib/integrations/onshape-comments";
-import { notifyOnshapeComment } from "@/lib/integrations/slack";
+import { notifyOnshapeCommentWithOptions } from "@/lib/integrations/slack";
+import {
+  findOnshapeCommentThread,
+  saveOnshapeCommentThread,
+} from "@/lib/storage/onshape-comment-threads";
 import { markWebhookMessageProcessed } from "@/lib/storage/webhook-dedupe";
 
 export const runtime = "nodejs";
@@ -116,13 +120,39 @@ export async function POST(req: Request) {
   }
 
   try {
-    const slackResult = await notifyOnshapeComment(notification);
+    const threadLookupIds = [
+      notification.parentCommentId,
+      notification.rootCommentId,
+    ].filter((commentId) => commentId && commentId !== notification.commentId);
+    const parentThread = await findOnshapeCommentThread(...threadLookupIds);
+    const slackResult = await notifyOnshapeCommentWithOptions(notification, {
+      threadTs: parentThread?.slackMessageTs,
+      replyToAuthorName:
+        parentThread?.rootAuthorName || parentThread?.authorName || "",
+      replyToAuthorEmail:
+        parentThread?.rootAuthorEmail || parentThread?.authorEmail || "",
+    });
     const slackWarning = typeof slackResult === "string" ? slackResult : "";
+    if (
+      slackResult &&
+      typeof slackResult === "object" &&
+      slackResult.channelId &&
+      slackResult.messageTs
+    ) {
+      await saveOnshapeCommentThread({
+        notification,
+        slackChannelId: slackResult.channelId,
+        slackMessageTs: slackResult.messageTs,
+        rootThread: parentThread,
+      });
+    }
+
     return Response.json({
       ok: true,
       processed: true,
       event,
       notified: !slackWarning,
+      threaded: Boolean(parentThread?.slackMessageTs),
       slackResult,
       warning: slackWarning || enrichmentWarning || undefined,
     });

@@ -11,6 +11,8 @@ export interface OnshapeCommentNotification {
   versionId: string;
   elementId: string;
   commentId: string;
+  parentCommentId: string;
+  rootCommentId: string;
   commentText: string;
   authorName: string;
   authorEmail: string;
@@ -468,6 +470,50 @@ function documentUrlFromDetails(
   return fallback.documentUrl;
 }
 
+function linkedCommentIdFromValue(
+  value: unknown,
+  directKeys: string[],
+  branchKeys: string[],
+) {
+  const record = asRecord(value);
+  const direct = directString(record, directKeys);
+  if (direct) {
+    return direct;
+  }
+
+  for (const branchKey of branchKeys) {
+    const branch = asRecord(record?.[branchKey]);
+    const id = directString(branch, ["commentId", "id", "cid"]);
+    if (id) {
+      return id;
+    }
+  }
+
+  return deepString(value, directKeys);
+}
+
+function parentCommentIdFromValue(value: unknown) {
+  return linkedCommentIdFromValue(
+    value,
+    [
+      "parentCommentId",
+      "parentId",
+      "replyToCommentId",
+      "inReplyToCommentId",
+      "inReplyToId",
+    ],
+    ["parentComment", "parent", "replyTo", "inReplyTo"],
+  );
+}
+
+function rootCommentIdFromValue(value: unknown) {
+  return linkedCommentIdFromValue(
+    value,
+    ["rootCommentId", "threadRootCommentId", "rootId"],
+    ["rootComment", "threadRoot", "root"],
+  );
+}
+
 export function isOnshapeCommentEvent(event: string) {
   return commentEvents.has(event);
 }
@@ -502,6 +548,10 @@ export function onshapeCommentNotificationFromPayload(
   const commentId =
     directString(dataRecord, ["commentId", "cid", "id"]) ||
     directString(record, ["commentId", "cid"]);
+  const parentCommentId =
+    parentCommentIdFromValue(data) || parentCommentIdFromValue(record);
+  const rootCommentId =
+    rootCommentIdFromValue(data) || rootCommentIdFromValue(record);
   const commentText =
     deepString(data, [
       "commentText",
@@ -539,6 +589,8 @@ export function onshapeCommentNotificationFromPayload(
     versionId,
     elementId,
     commentId,
+    parentCommentId,
+    rootCommentId,
     commentText,
     authorName,
     authorEmail,
@@ -581,6 +633,14 @@ export async function enrichOnshapeCommentNotification(
   return {
     ...notification,
     commentText,
+    parentCommentId: firstString(
+      notification.parentCommentId,
+      parentCommentIdFromValue(details),
+    ),
+    rootCommentId: firstString(
+      notification.rootCommentId,
+      rootCommentIdFromValue(details),
+    ),
     authorName: firstString(notification.authorName, authorNameFromDetails(details)),
     authorEmail: firstString(
       notification.authorEmail,

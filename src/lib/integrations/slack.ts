@@ -724,9 +724,17 @@ function onshapeCommentSummary(input: {
   event: OnshapeCommentNotification["event"];
   author: string;
   mentionText: string;
+  replyTo: string;
+  isReply: boolean;
 }) {
   if (input.event === "onshape.comment.delete") {
     return "";
+  }
+
+  if (input.isReply) {
+    return input.replyTo
+      ? `${input.author} replied to ${input.replyTo}`
+      : `${input.author} replied in Onshape`;
   }
 
   if (input.mentionText) {
@@ -745,11 +753,26 @@ function slackMention(user: SlackUser | undefined) {
 }
 
 export async function notifyOnshapeComment(input: OnshapeCommentNotification) {
+  return notifyOnshapeCommentWithOptions(input);
+}
+
+export async function notifyOnshapeCommentWithOptions(
+  input: OnshapeCommentNotification,
+  options: {
+    threadTs?: string;
+    replyToAuthorName?: string;
+    replyToAuthorEmail?: string;
+  } = {},
+) {
   const explicitMentionUsers = await findSlackUsersByIdentity(input.mentionCandidates);
   const textMentionUsers = await findSlackUsersMentionedInText(input.commentText);
   const authorUsers = await findSlackUsersByIdentity([
     input.authorName,
     input.authorEmail,
+  ]);
+  const replyToUsers = await findSlackUsersByIdentity([
+    options.replyToAuthorName ?? "",
+    options.replyToAuthorEmail ?? "",
   ]);
   const mentionedUsers = uniqueSlackUsers([
     ...explicitMentionUsers,
@@ -763,6 +786,11 @@ export async function notifyOnshapeComment(input: OnshapeCommentNotification) {
     input.authorEmail ||
     (input.event === "onshape.comment.delete" ? "Someone" : "Unknown author");
   const author = slackMention(authorUsers[0]) || authorFallback;
+  const replyTo =
+    slackMention(replyToUsers[0]) ||
+    options.replyToAuthorName ||
+    options.replyToAuthorEmail ||
+    "";
   const formattedCommentText =
     stripOnshapeMentionTokens(input.commentText) ||
     formatOnshapeCommentText(input.commentText, mentionedUsers);
@@ -776,6 +804,8 @@ export async function notifyOnshapeComment(input: OnshapeCommentNotification) {
     event: input.event,
     author,
     mentionText,
+    replyTo,
+    isReply: Boolean(options.threadTs),
   });
   const openLink =
     optionalSlackLink(input.documentUrl, "Open in Onshape") || "Open in Onshape";
@@ -823,6 +853,7 @@ export async function notifyOnshapeComment(input: OnshapeCommentNotification) {
           ? title
           : `${title}: ${summary}`,
       blocks,
+      threadTs: options.threadTs,
     },
   });
 }
