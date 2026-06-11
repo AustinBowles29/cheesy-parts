@@ -1339,6 +1339,35 @@ export async function updateAirtableSlackMessageInfo(
   return mapAirtableRecord(record, target);
 }
 
+export async function updateAirtableDrawingAttachment(
+  recordId: string,
+  request: ManufacturingRequest,
+  tableHint: AirtableTableHint = {},
+) {
+  const resolvedTarget = resolveAirtableTableTarget(tableHint);
+  const { target, table } = await tableSchemaForTarget(resolvedTarget);
+  const drawingField = writableFieldByName(table, [
+    "Part Drawing / File (Check with Designed)",
+    "Drawing",
+    "Drawing PDF",
+  ]);
+  const drawingValue = drawingFieldValue(drawingField, request.attachments);
+
+  if (!drawingField || drawingValue === undefined) {
+    return null;
+  }
+
+  const record = await airtableFetch<AirtableRecord>(
+    `${tableUrl(target)}/${recordId}`,
+    {
+      method: "PATCH",
+      body: JSON.stringify({ fields: { [drawingField.name]: drawingValue } }),
+    },
+  );
+
+  return mapAirtableRecord(record, target);
+}
+
 export async function statusForAirtableTarget(
   status: ManufacturingRequest["status"],
   tableHint: AirtableTableHint = {},

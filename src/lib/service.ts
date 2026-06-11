@@ -6,6 +6,7 @@ import {
   listAirtableRequests,
   resolveAirtableTableTarget,
   statusForAirtableTarget,
+  updateAirtableDrawingAttachment,
   updateAirtableSlackMessageInfo,
   updateAirtableStatus,
 } from "./integrations/airtable";
@@ -184,24 +185,10 @@ export async function findManufacturingRequest(
   return null;
 }
 
-export async function createManufacturingRequest(
-  input: SubmissionInput,
+export async function notifyManufacturingRequestCreated(
+  request: ManufacturingRequest,
 ): Promise<ServiceResult<ManufacturingRequest>> {
   const warnings: string[] = [];
-  let request = buildManufacturingRequest(input);
-
-  if (isAirtableConfigured()) {
-    request = await createAirtableRecord(request);
-    request.auditHistory.push(
-      auditEntry({
-        action: "airtable_synced",
-        actor: "system",
-        note: `Airtable record ${request.airtableId} created.`,
-      }),
-    );
-  }
-
-  await upsertLocalRequest(request);
   const submissionNotification = await runNotification<SlackNotificationResult>(
     warnings,
     () => notifyNewSubmission(request),
@@ -263,6 +250,80 @@ export async function createManufacturingRequest(
   }
 
   return { data: request, warnings };
+}
+
+export async function attachManufacturingRequestDrawing(
+  request: ManufacturingRequest,
+  attachments: ManufacturingRequest["attachments"],
+): Promise<ServiceResult<ManufacturingRequest>> {
+  const warnings: string[] = [];
+  let updatedRequest = {
+    ...request,
+    attachments,
+  };
+
+  if (isAirtableConfigured() && updatedRequest.airtableId) {
+    try {
+      const persisted = await updateAirtableDrawingAttachment(
+        updatedRequest.airtableId,
+        updatedRequest,
+        {
+          airtableTableId: updatedRequest.airtableTableId,
+          airtableTableName: updatedRequest.airtableTableName,
+          category: updatedRequest.category,
+        },
+      );
+      if (persisted) {
+        updatedRequest = {
+          ...updatedRequest,
+          attachments:
+            persisted.attachments.length > 0
+              ? persisted.attachments
+              : updatedRequest.attachments,
+        };
+      }
+    } catch (error) {
+      warnings.push(
+        error instanceof Error
+          ? error.message
+          : "Drawing attachment could not be saved to Airtable.",
+      );
+    }
+  }
+
+  await upsertLocalRequest(updatedRequest);
+  return { data: updatedRequest, warnings };
+}
+
+export async function createManufacturingRequest(
+  input: SubmissionInput,
+  options: { notify?: boolean } = {},
+): Promise<ServiceResult<ManufacturingRequest>> {
+  const warnings: string[] = [];
+  let request = buildManufacturingRequest(input);
+
+  if (isAirtableConfigured()) {
+    request = await createAirtableRecord(request);
+    request.auditHistory.push(
+      auditEntry({
+        action: "airtable_synced",
+        actor: "system",
+        note: `Airtable record ${request.airtableId} created.`,
+      }),
+    );
+  }
+
+  await upsertLocalRequest(request);
+
+  if (options.notify === false) {
+    return { data: request, warnings };
+  }
+
+  const notificationResult = await notifyManufacturingRequestCreated(request);
+  return {
+    data: notificationResult.data,
+    warnings: [...warnings, ...notificationResult.warnings],
+  };
 }
 
 export async function changeManufacturingStatus(input: {
