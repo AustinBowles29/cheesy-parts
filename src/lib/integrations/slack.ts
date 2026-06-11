@@ -700,14 +700,6 @@ function formatOnshapeCommentText(text: string, mentionedUsers: SlackUser[]) {
   });
 }
 
-function stripOnshapeMentionTokens(text: string) {
-  return text
-    .replace(/\[~[^:\]]+:[^\]]+\]/g, "")
-    .replace(/[ \t]+\n/g, "\n")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
-}
-
 function onshapeCommentTitle(event: OnshapeCommentNotification["event"]) {
   if (event === "onshape.comment.delete") {
     return "Onshape comment deleted";
@@ -791,9 +783,10 @@ export async function notifyOnshapeCommentWithOptions(
     options.replyToAuthorName ||
     options.replyToAuthorEmail ||
     "";
-  const formattedCommentText =
-    stripOnshapeMentionTokens(input.commentText) ||
-    formatOnshapeCommentText(input.commentText, mentionedUsers);
+  const formattedCommentText = formatOnshapeCommentText(
+    input.commentText,
+    mentionedUsers,
+  ).trim();
   const commentText =
     truncateSlackText(formattedCommentText, 1200) ||
     (input.event === "onshape.comment.delete"
