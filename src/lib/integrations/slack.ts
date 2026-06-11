@@ -276,6 +276,8 @@ async function postSlackToChannel(channelId: string, payload: SlackPayload) {
       blocks: payload.blocks,
       thread_ts: payload.threadTs || undefined,
       link_names: true,
+      unfurl_links: false,
+      unfurl_media: false,
     }),
   });
 
@@ -654,6 +656,51 @@ function uniqueSlackUsers(users: SlackUser[]) {
   return uniqueUsers;
 }
 
+function normalizedSlackIdentity(value: unknown) {
+  return normalizeString(value)
+    .replace(/^<@/, "")
+    .replace(/>$/, "")
+    .replace(/^@/, "")
+    .toLowerCase()
+    .replace(/\s+/g, " ");
+}
+
+function slackUserMatchesOnshapeMention(user: SlackUser, input: {
+  onshapeUserId: string;
+  name: string;
+}) {
+  const emailLocalPart = user.email?.split("@")[0];
+  const candidates = [
+    user.slackUserId,
+    user.displayName,
+    user.handle,
+    user.email,
+    emailLocalPart,
+  ]
+    .map(normalizedSlackIdentity)
+    .filter(Boolean);
+  const mentionCandidates = [
+    input.onshapeUserId,
+    input.name,
+  ].map(normalizedSlackIdentity);
+
+  return mentionCandidates.some((candidate) => candidates.includes(candidate));
+}
+
+function formatOnshapeCommentText(text: string, mentionedUsers: SlackUser[]) {
+  return text.replace(/\[~([^:\]]+):([^\]]+)\]/g, (_match, onshapeUserId, name) => {
+    const matchedUser =
+      mentionedUsers.find((user) =>
+        slackUserMatchesOnshapeMention(user, {
+          onshapeUserId,
+          name,
+        }),
+      ) || (mentionedUsers.length === 1 ? mentionedUsers[0] : undefined);
+
+    return matchedUser?.slackUserId ? `<@${matchedUser.slackUserId}>` : `@${name}`;
+  });
+}
+
 export async function notifyOnshapeComment(input: OnshapeCommentNotification) {
   const explicitMentionUsers = await findSlackUsersByIdentity(input.mentionCandidates);
   const textMentionUsers = await findSlackUsersMentionedInText(input.commentText);
@@ -669,8 +716,12 @@ export async function notifyOnshapeComment(input: OnshapeCommentNotification) {
     input.authorName ||
     input.authorEmail ||
     (input.event === "onshape.comment.delete" ? "Someone" : "Unknown author");
+  const formattedCommentText = formatOnshapeCommentText(
+    input.commentText,
+    mentionedUsers,
+  );
   const commentText =
-    truncateSlackText(input.commentText, 1200) ||
+    truncateSlackText(formattedCommentText, 1200) ||
     (input.event === "onshape.comment.delete"
       ? "Comment deleted."
       : "No comment text was included in the webhook payload.");

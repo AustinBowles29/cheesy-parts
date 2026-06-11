@@ -195,6 +195,11 @@ function collectMentionCandidates(value: unknown, depth = 0, keyHint = ""): stri
 function mentionTextCandidates(text: string) {
   const candidates = new Set<string>();
 
+  for (const match of text.matchAll(/\[~([^:\]]+):([^\]]+)\]/g)) {
+    candidates.add(match[1]);
+    candidates.add(match[2]);
+  }
+
   for (const match of text.matchAll(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi)) {
     candidates.add(match[0]);
   }
