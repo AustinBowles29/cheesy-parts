@@ -1,7 +1,7 @@
 import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { put } from "@vercel/blob";
+import { get, put } from "@vercel/blob";
 import type { AttachmentKind, AttachmentRef } from "./types";
 
 function defaultUploadDir() {
@@ -25,6 +25,10 @@ function blobStorageEnabled() {
     process.env.BLOB_READ_WRITE_TOKEN ||
       (process.env.BLOB_STORE_ID && (process.env.VERCEL || process.env.VERCEL_OIDC_TOKEN)),
   );
+}
+
+function blobAccess(): "private" | "public" {
+  return process.env.BLOB_ACCESS === "public" ? "public" : "private";
 }
 
 function safeFilename(filename: string) {
@@ -52,12 +56,10 @@ async function saveFileToBlob(input: {
   contentType: string;
   filename: string;
 }) {
-  const blob = await put(`uploads/${input.filename}`, input.bytes, {
-    access: "public",
+  await put(`uploads/${input.filename}`, input.bytes, {
+    access: blobAccess(),
     contentType: input.contentType || "application/octet-stream",
   });
-
-  return blob.url;
 }
 
 export async function saveUploadedFiles(formData: FormData, requestUrl: string) {
@@ -79,11 +81,11 @@ export async function saveUploadedFiles(formData: FormData, requestUrl: string) 
       const id = `${crypto.randomUUID()}-${safeFilename(value.name)}`;
       const bytes = Buffer.from(await value.arrayBuffer());
       const contentType = value.type || "application/octet-stream";
-      const url = blobStorageEnabled()
-        ? await saveFileToBlob({ bytes, contentType, filename: id })
-        : `${baseUrl}/api/files/${encodeURIComponent(id)}`;
+      const url = `${baseUrl}/api/files/${encodeURIComponent(id)}`;
 
-      if (!blobStorageEnabled()) {
+      if (blobStorageEnabled()) {
+        await saveFileToBlob({ bytes, contentType, filename: id });
+      } else {
         await fs.writeFile(path.join(uploadDir, id), bytes);
       }
 
@@ -114,15 +116,15 @@ export async function saveGeneratedFile(input: {
 
   const baseUrl = new URL(input.requestUrl).origin;
   const id = `${crypto.randomUUID()}-${safeFilename(input.filename)}`;
-  const url = blobStorageEnabled()
-    ? await saveFileToBlob({
-        bytes: input.bytes,
-        contentType: input.contentType,
-        filename: id,
-      })
-    : `${baseUrl}/api/files/${encodeURIComponent(id)}`;
+  const url = `${baseUrl}/api/files/${encodeURIComponent(id)}`;
 
-  if (!blobStorageEnabled()) {
+  if (blobStorageEnabled()) {
+    await saveFileToBlob({
+      bytes: input.bytes,
+      contentType: input.contentType,
+      filename: id,
+    });
+  } else {
     await fs.writeFile(path.join(uploadDir, id), input.bytes);
   }
 
@@ -138,11 +140,31 @@ export async function saveGeneratedFile(input: {
 
 export async function readUploadedFile(fileId: string) {
   const safeId = path.basename(fileId);
+
+  if (blobStorageEnabled()) {
+    const blob = await get(`uploads/${safeId}`, {
+      access: blobAccess(),
+      useCache: false,
+    });
+
+    if (!blob || blob.statusCode !== 200 || !blob.stream) {
+      throw new Error("File not found.");
+    }
+
+    const data = Buffer.from(await new Response(blob.stream).arrayBuffer());
+    return {
+      data,
+      filename: safeId,
+      contentType: blob.blob.contentType || "application/octet-stream",
+    };
+  }
+
   const filePath = path.join(uploadDir, safeId);
   const data = await fs.readFile(filePath);
 
   return {
     data,
     filename: safeId,
+    contentType: "application/octet-stream",
   };
 }

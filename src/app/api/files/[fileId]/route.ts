@@ -13,7 +13,7 @@ export async function GET(
     return new Response(new Uint8Array(file.data), {
       headers: {
         "Content-Disposition": `attachment; filename="${file.filename}"`,
-        "Content-Type": "application/octet-stream",
+        "Content-Type": file.contentType,
       },
     });
   } catch {

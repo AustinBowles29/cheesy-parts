@@ -271,9 +271,14 @@ fallback, the route also accepts a bearer token from
 
 Uploaded files are stored locally for development.
 
-On Vercel, local fallback storage uses `/tmp`, which is ephemeral. Airtable
-should remain the production source of truth, and durable storage should be used
-for any file URLs that need to last long term.
+On Vercel, configure Vercel Blob with `BLOB_READ_WRITE_TOKEN` or
+`BLOB_STORE_ID`. Blob uploads default to `private` access and are served through
+`/api/files/:fileId`, so Airtable and Slack receive stable app download links
+without exposing the raw private Blob URL. Set `BLOB_ACCESS=public` only if the
+Blob store is intentionally configured for public files.
+
+If Blob is not configured, local fallback storage uses `/tmp` on Vercel, which
+is ephemeral and should not be used for production file links.
 
 ## Feedback To Report
 
