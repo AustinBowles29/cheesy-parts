@@ -47,6 +47,36 @@ function eventFromBody(body: unknown) {
   return String(record.event ?? record.eventType ?? record.type ?? "").trim();
 }
 
+function dedupeIdForCommentNotification(notification: {
+  event: string;
+  documentId: string;
+  commentId: string;
+  messageId: string;
+  timestamp: string;
+}) {
+  if (notification.event === "onshape.comment.create" && notification.commentId) {
+    return [
+      "onshape-comment-create",
+      notification.documentId,
+      notification.commentId,
+    ]
+      .filter(Boolean)
+      .join(":");
+  }
+
+  return (
+    notification.messageId ||
+    [
+      notification.event,
+      notification.documentId,
+      notification.commentId,
+      notification.timestamp,
+    ]
+      .filter(Boolean)
+      .join(":")
+  );
+}
+
 export function GET() {
   return Response.json({
     ok: true,
@@ -93,16 +123,7 @@ export async function POST(req: Request) {
     });
   }
 
-  const dedupeId =
-    notification.messageId ||
-    [
-      notification.event,
-      notification.documentId,
-      notification.commentId,
-      notification.timestamp,
-    ]
-      .filter(Boolean)
-      .join(":");
+  const dedupeId = dedupeIdForCommentNotification(notification);
   const shouldProcess = await markWebhookMessageProcessed(dedupeId);
   if (!shouldProcess) {
     return Response.json({ ok: true, duplicate: true, event });

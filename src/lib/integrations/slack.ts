@@ -137,6 +137,17 @@ function manufacturingUsergroupMention() {
 function machineUsergroupMention(machineType: ManufacturingRequest["machineType"]) {
   const machine = normalizeString(machineType).toLowerCase();
 
+  if (machine.includes("haas") || machine.includes("cnc mill")) {
+    return usergroupMention({
+      idKeys: ["SLACK_HAAS_USERGROUP_ID", "SLACK_MACHINE_HAAS_USERGROUP_ID"],
+      handleKeys: [
+        "SLACK_HAAS_USERGROUP_HANDLE",
+        "SLACK_MACHINE_HAAS_USERGROUP_HANDLE",
+      ],
+      fallbackHandle: "haas",
+    });
+  }
+
   if (machine.includes("router")) {
     return usergroupMention({
       idKeys: ["SLACK_ROUTER_USERGROUP_ID", "SLACK_MACHINE_ROUTER_USERGROUP_ID"],
