@@ -53,6 +53,8 @@ export const NUMBERING_SUBSYSTEMS: NumberingSubsystem[] = [
 ];
 
 const nonNumberedSubsystems = new Set(["cheesycare", "pit"]);
+const overflowPrefixDigits = "09";
+const maxTwoDigitSequence = 99;
 
 function normalizedKey(value: unknown) {
   return normalizeString(value).toLowerCase();
@@ -132,6 +134,25 @@ export function generatedPartNumberPrefix() {
   return `${String(new Date().getFullYear()).slice(-2)}-P-`;
 }
 
+function maxSequenceForPrefix(
+  existingPartNumbers: readonly string[],
+  prefixDigits: string,
+) {
+  return existingPartNumbers.reduce((max, partNumber) => {
+    const core = partNumberCore(partNumber);
+    if (!core || core.slice(0, 2) !== prefixDigits) {
+      return max;
+    }
+
+    const sequence = Number.parseInt(core.slice(2), 10);
+    return Number.isFinite(sequence) ? Math.max(max, sequence) : max;
+  }, 0);
+}
+
+function coreForPrefix(prefixDigits: string, sequence: number) {
+  return `${prefixDigits}${String(sequence).padStart(2, "0")}`;
+}
+
 export function nextPartNumberForSubsystem(input: {
   subsystem: string;
   existingPartNumbers: readonly string[];
@@ -142,24 +163,23 @@ export function nextPartNumberForSubsystem(input: {
   }
 
   const prefixDigits = subsystem.prefix.slice(0, 2);
-  const maxExisting = input.existingPartNumbers.reduce((max, partNumber) => {
-    const core = partNumberCore(partNumber);
-    if (!core || core.slice(0, 2) !== prefixDigits) {
-      return max;
-    }
-
-    const sequence = Number.parseInt(core.slice(2), 10);
-    return Number.isFinite(sequence) ? Math.max(max, sequence) : max;
-  }, 0);
+  const maxExisting = maxSequenceForPrefix(
+    input.existingPartNumbers,
+    prefixDigits,
+  );
   const nextSequence = maxExisting + 1;
 
-  if (nextSequence > 99) {
-    throw new Error(
-      `${subsystem.label} has used all two-digit part numbers for prefix ${prefixDigits}.`,
-    );
-  }
+  let core = coreForPrefix(prefixDigits, nextSequence);
 
-  const core = `${prefixDigits}${String(nextSequence).padStart(2, "0")}`;
+  if (nextSequence > maxTwoDigitSequence) {
+    const overflowSequence =
+      maxSequenceForPrefix(input.existingPartNumbers, overflowPrefixDigits) + 1;
+    if (overflowSequence > maxTwoDigitSequence) {
+      throw new Error("The 09xx overflow part number range has been used up.");
+    }
+
+    core = coreForPrefix(overflowPrefixDigits, overflowSequence);
+  }
 
   return {
     subsystem,
