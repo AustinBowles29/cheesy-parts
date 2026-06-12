@@ -1573,6 +1573,7 @@ async function waitForTranslation(
   translationId: string,
   accessToken: string,
   server?: string,
+  label = "Onshape drawing export",
 ): Promise<OnshapeTranslationResponse> {
   for (let attempt = 0; attempt < 12; attempt += 1) {
     const translation = await onshapeFetchJson<OnshapeTranslationResponse>(
@@ -1588,22 +1589,24 @@ async function waitForTranslation(
 
     if (state === "FAILED") {
       throw new Error(
-        translation.failureReason || "Onshape drawing PDF export failed.",
+        translation.failureReason || `${label} failed.`,
       );
     }
 
     await sleep(400 * (attempt + 1));
   }
 
-  throw new Error("Onshape drawing PDF export did not finish in time.");
+  throw new Error(`${label} did not finish in time.`);
 }
 
-async function exportDrawingPdf(input: {
+async function exportDrawingFile(input: {
   accessToken: string;
   documentId: string;
   wvm: string;
   wvmId: string;
   drawingElementId: string;
+  formatName: "PDF" | "DXF";
+  label: string;
   server?: string;
 }) {
   const translationPath = `/v6/drawings/d/${input.documentId}/${input.wvm}/${input.wvmId}/e/${input.drawingElementId}/translations`;
@@ -1614,7 +1617,7 @@ async function exportDrawingPdf(input: {
       translationPath,
       input.accessToken,
       {
-        formatName: "PDF",
+        formatName: input.formatName,
         storeInDocument: false,
         translate: true,
       },
@@ -1622,7 +1625,7 @@ async function exportDrawingPdf(input: {
     );
   } catch (error) {
     throw new Error(
-      `Onshape drawing PDF export could not start at ${translationUrl}: ${
+      `${input.label} could not start at ${translationUrl}: ${
         error instanceof Error ? error.message : String(error)
       }`,
     );
@@ -1630,7 +1633,7 @@ async function exportDrawingPdf(input: {
 
   const translationId = normalizeString(translation.id || translation.requestId);
   if (!translationId) {
-    throw new Error("Onshape drawing PDF export did not return a translation id.");
+    throw new Error(`${input.label} did not return a translation id.`);
   }
 
   let finished: OnshapeTranslationResponse;
@@ -1639,10 +1642,11 @@ async function exportDrawingPdf(input: {
       translationId,
       input.accessToken,
       input.server,
+      input.label,
     );
   } catch (error) {
     throw new Error(
-      `Onshape drawing PDF export translation ${translationId} could not finish: ${
+      `${input.label} translation ${translationId} could not finish: ${
         error instanceof Error ? error.message : String(error)
       }`,
     );
@@ -1668,7 +1672,7 @@ async function exportDrawingPdf(input: {
 
   if (resultIds.length === 0) {
     throw new Error(
-      `Onshape drawing PDF export translation ${translationId} finished but returned no result file IDs.`,
+      `${input.label} translation ${translationId} finished but returned no result file IDs.`,
     );
   }
 
@@ -1691,10 +1695,40 @@ async function exportDrawingPdf(input: {
   }
 
   throw new Error(
-    `Onshape drawing PDF export result could not be downloaded. First error: ${
+    `${input.label} result could not be downloaded. First error: ${
       errors[0] || "No download response was attempted."
     }`,
   );
+}
+
+async function exportDrawingPdf(input: {
+  accessToken: string;
+  documentId: string;
+  wvm: string;
+  wvmId: string;
+  drawingElementId: string;
+  server?: string;
+}) {
+  return exportDrawingFile({
+    ...input,
+    formatName: "PDF",
+    label: "Onshape drawing PDF export",
+  });
+}
+
+async function exportDrawingDxf(input: {
+  accessToken: string;
+  documentId: string;
+  wvm: string;
+  wvmId: string;
+  drawingElementId: string;
+  server?: string;
+}) {
+  return exportDrawingFile({
+    ...input,
+    formatName: "DXF",
+    label: "Onshape drawing DXF export",
+  });
 }
 
 export async function createOnshapeDrawingPdfAttachment(
@@ -1745,6 +1779,58 @@ export async function createOnshapeDrawingPdfAttachment(
     contentType: "application/pdf",
     filename: `${filenameBase}.pdf`,
     kind: "drawing",
+    requestUrl,
+  });
+}
+
+export async function createOnshapeDrawingDxfAttachment(
+  input: SubmissionInput,
+  requestUrl: string,
+  accessTokenOverride = "",
+): Promise<AttachmentRef | null> {
+  const drawingUrlContext = onshapeElementContextFromUrl(input.onshapeDrawingUrl);
+  const drawingElementId =
+    normalizeString(drawingUrlContext?.elementId) ||
+    normalizeString(input.onshapeDrawingElementId);
+  const documentId =
+    normalizeString(drawingUrlContext?.documentId) ||
+    normalizeString(input.onshapeDocumentId);
+  const wvm =
+    normalizeString(drawingUrlContext?.wvm) || normalizeString(input.onshapeWvm);
+  const wvmId =
+    normalizeString(drawingUrlContext?.wvmId) || normalizeString(input.onshapeWvmId);
+  const server =
+    normalizeOnshapeServer(drawingUrlContext?.server) ||
+    normalizeOnshapeServer(input.onshapeServer);
+
+  if (!drawingElementId || !documentId || !wvm || !wvmId) {
+    return null;
+  }
+
+  const accessToken =
+    normalizeString(accessTokenOverride) || (await getOnshapeAccessToken());
+  if (!accessToken) {
+    return null;
+  }
+
+  const bytes = await exportDrawingDxf({
+    accessToken,
+    documentId,
+    wvm,
+    wvmId,
+    drawingElementId,
+    server: server || undefined,
+  });
+  const filenameBase =
+    normalizeString(input.partNumber) ||
+    normalizeString(input.partName) ||
+    "onshape-drawing";
+
+  return saveGeneratedFile({
+    bytes,
+    contentType: "application/dxf",
+    filename: `${filenameBase}.dxf`,
+    kind: "dxf",
     requestUrl,
   });
 }

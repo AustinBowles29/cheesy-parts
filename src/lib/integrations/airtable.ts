@@ -1352,8 +1352,19 @@ export async function updateAirtableDrawingAttachment(
     "Drawing PDF",
   ]);
   const drawingValue = drawingFieldValue(drawingField, request.attachments);
+  const dxfField = writableFieldByName(table, ["DXF"]);
+  const dxfValue = attachmentFields(request.attachments, "dxf");
+  const fields: Record<string, unknown> = {};
 
-  if (!drawingField || drawingValue === undefined) {
+  if (drawingField && drawingValue !== undefined) {
+    fields[drawingField.name] = drawingValue;
+  }
+
+  if (dxfField && dxfValue !== undefined) {
+    fields[dxfField.name] = dxfValue;
+  }
+
+  if (Object.keys(fields).length === 0) {
     return null;
   }
 
@@ -1361,7 +1372,7 @@ export async function updateAirtableDrawingAttachment(
     `${tableUrl(target)}/${recordId}`,
     {
       method: "PATCH",
-      body: JSON.stringify({ fields: { [drawingField.name]: drawingValue } }),
+      body: JSON.stringify({ fields }),
     },
   );
 

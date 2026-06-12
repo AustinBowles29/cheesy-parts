@@ -1,4 +1,4 @@
-import { isDrawingPdfAttachment } from "../attachments";
+import { isDrawingPdfAttachment, isDxfAttachment } from "../attachments";
 import { normalizeString } from "../manufacturing";
 import type { ManufacturingRequest, ManufacturingStatus, SlackUser } from "../types";
 import type { OnshapeCommentNotification } from "./onshape-comments";
@@ -139,10 +139,17 @@ function machineUsergroupMention(machineType: ManufacturingRequest["machineType"
 
   if (machine.includes("haas") || machine.includes("cnc mill")) {
     return usergroupMention({
-      idKeys: ["SLACK_HAAS_USERGROUP_ID", "SLACK_MACHINE_HAAS_USERGROUP_ID"],
+      idKeys: [
+        "SLACK_HAAS_USERGROUP_ID",
+        "SLACK_MACHINE_HAAS_USERGROUP_ID",
+        "SLACK_CNC_MILL_USERGROUP_ID",
+        "SLACK_MACHINE_CNC_MILL_USERGROUP_ID",
+      ],
       handleKeys: [
         "SLACK_HAAS_USERGROUP_HANDLE",
         "SLACK_MACHINE_HAAS_USERGROUP_HANDLE",
+        "SLACK_CNC_MILL_USERGROUP_HANDLE",
+        "SLACK_MACHINE_CNC_MILL_USERGROUP_HANDLE",
       ],
       fallbackHandle: "haas",
     });
@@ -392,6 +399,16 @@ function drawingPdfLinkLabel(request: ManufacturingRequest) {
   );
 }
 
+function drawingDxfLinkLabel(request: ManufacturingRequest) {
+  const dxfAttachment = request.attachments.find(isDxfAttachment);
+
+  if (!dxfAttachment?.url) {
+    return "";
+  }
+
+  return slackLink(dxfAttachment.url, dxfAttachment.filename || "Drawing DXF");
+}
+
 function appBaseUrl() {
   const explicitUrl =
     process.env.APP_URL ??
@@ -437,6 +454,7 @@ function onshapeDrawingLinkLabel(request: ManufacturingRequest) {
 function drawingLinksLabel(request: ManufacturingRequest) {
   const links = [
     drawingPdfLinkLabel(request) || "No drawing PDF attached",
+    drawingDxfLinkLabel(request),
     onshapeDrawingLinkLabel(request),
   ].filter(Boolean);
 

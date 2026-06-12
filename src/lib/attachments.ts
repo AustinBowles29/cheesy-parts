@@ -16,6 +16,17 @@ export function isDrawingPdfAttachment(attachment: AttachmentRef) {
   );
 }
 
+export function isDxfAttachment(attachment: AttachmentRef) {
+  const contentType = normalizeString(attachment.contentType).toLowerCase();
+  const filename = normalizeString(attachment.filename).toLowerCase();
+
+  return (
+    attachment.kind === "dxf" &&
+    Boolean(attachment.url) &&
+    (contentType.includes("dxf") || filename.endsWith(".dxf"))
+  );
+}
+
 export function drawingLinkAttachment(url: string): AttachmentRef | null {
   const normalizedUrl = normalizeString(url);
   if (!normalizedUrl) {

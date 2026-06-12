@@ -1,7 +1,14 @@
 import { after } from "next/server";
 import { saveUploadedFiles } from "@/lib/files";
-import { drawingLinkAttachment, isDrawingPdfAttachment } from "@/lib/attachments";
-import { createOnshapeDrawingPdfAttachment } from "@/lib/integrations/onshape";
+import {
+  drawingLinkAttachment,
+  isDrawingPdfAttachment,
+  isDxfAttachment,
+} from "@/lib/attachments";
+import {
+  createOnshapeDrawingDxfAttachment,
+  createOnshapeDrawingPdfAttachment,
+} from "@/lib/integrations/onshape";
 import {
   attachManufacturingRequestDrawing,
   createManufacturingRequest,
@@ -50,6 +57,24 @@ function drawingPdfWarning(error: unknown) {
   return `Onshape drawing PDF could not be attached: ${message}`;
 }
 
+function drawingDxfWarning(error: unknown) {
+  const message =
+    error instanceof Error ? error.message : "Onshape drawing DXF export failed.";
+
+  if (message.includes("failed (403)")) {
+    return [
+      "Onshape drawing link was saved, but the DXF could not be exported.",
+      `Onshape returned 403 during DXF export. Details: ${message}`,
+    ].join(" ");
+  }
+
+  return `Onshape drawing DXF could not be attached: ${message}`;
+}
+
+function shouldExportDrawingDxf(request: ManufacturingRequest) {
+  return request.machineType.toLowerCase().includes("router");
+}
+
 function ensureDrawingLinkAttachment(input: SubmissionInput) {
   if (input.attachments?.some((attachment) => attachment.kind === "drawing")) {
     return input;
@@ -75,6 +100,9 @@ async function finishSubmissionAfterResponse(input: {
   let request = input.request;
   const warnings: string[] = [];
   const hasDrawingPdf = request.attachments.some(isDrawingPdfAttachment);
+  const hasDrawingDxf = request.attachments.some(isDxfAttachment);
+  let attachments = request.attachments;
+  let didGenerateAttachment = false;
 
   if (!hasDrawingPdf) {
     try {
@@ -84,20 +112,41 @@ async function finishSubmissionAfterResponse(input: {
         input.bearerToken,
       );
       if (drawingAttachment) {
-        const attachments = [
-          ...request.attachments.filter(
+        attachments = [
+          ...attachments.filter(
             (attachment) => attachment.id && !attachment.id.startsWith("onshape-drawing-link-"),
           ),
           drawingAttachment,
         ];
-        const result = await attachManufacturingRequestDrawing(request, attachments);
-        request = result.data;
-        warnings.push(...result.warnings);
+        didGenerateAttachment = true;
       }
     } catch (error) {
       warnings.push(`${drawingPdfWarning(error)} Saved the Onshape drawing link instead.`);
       console.error("Onshape drawing PDF export failed after submission", error);
     }
+  }
+
+  if (shouldExportDrawingDxf(request) && !hasDrawingDxf) {
+    try {
+      const dxfAttachment = await createOnshapeDrawingDxfAttachment(
+        input.submissionInput,
+        input.requestUrl,
+        input.bearerToken,
+      );
+      if (dxfAttachment) {
+        attachments = [...attachments, dxfAttachment];
+        didGenerateAttachment = true;
+      }
+    } catch (error) {
+      warnings.push(drawingDxfWarning(error));
+      console.error("Onshape drawing DXF export failed after submission", error);
+    }
+  }
+
+  if (didGenerateAttachment) {
+    const result = await attachManufacturingRequestDrawing(request, attachments);
+    request = result.data;
+    warnings.push(...result.warnings);
   }
 
   const notificationResult = await notifyManufacturingRequestCreated(request);
