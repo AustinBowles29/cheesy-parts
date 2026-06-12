@@ -318,16 +318,20 @@ async function configuredCanonicalQueueTableTargets() {
   return canonicalizeTableTargets(configuredQueueTableTargets());
 }
 
-async function configuredCanonicalAnyTableTargets() {
-  return canonicalizeTableTargets(configuredAnyTableTargets());
-}
-
 function queueViewForTarget(target: AirtableTableTarget) {
   return (
     normalizeString(process.env[`AIRTABLE_QUEUE_VIEW_${envKeySuffix(target.value)}`]) ||
     normalizeString(process.env.AIRTABLE_QUEUE_VIEW) ||
     normalizeString(process.env.AIRTABLE_VIEW) ||
     defaultQueueView
+  );
+}
+
+function partNumberViewForTarget(target: AirtableTableTarget) {
+  return (
+    normalizeString(
+      process.env[`AIRTABLE_PART_NUMBER_VIEW_${envKeySuffix(target.value)}`],
+    ) || normalizeString(process.env.AIRTABLE_PART_NUMBER_VIEW)
   );
 }
 
@@ -1528,12 +1532,16 @@ export async function listAirtableRequests() {
 export async function listAirtablePartNumbers() {
   const partNumbers = new Set<string>();
 
-  for (const target of await configuredCanonicalAnyTableTargets()) {
+  for (const target of await configuredCanonicalQueueTableTargets()) {
     let offset: string | undefined;
 
     do {
       const url = new URL(tableUrl(target));
       url.searchParams.set("pageSize", "100");
+      const view = partNumberViewForTarget(target);
+      if (view) {
+        url.searchParams.set("view", view);
+      }
       if (offset) {
         url.searchParams.set("offset", offset);
       }

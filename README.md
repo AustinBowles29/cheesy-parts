@@ -170,11 +170,15 @@ Important groups:
 - `AIRTABLE_QUEUE_TABLES`
 - `AIRTABLE_SUBMISSION_TABLES`
 - `AIRTABLE_QUEUE_VIEW`
+- `AIRTABLE_PART_NUMBER_VIEW`
 - `AIRTABLE_BASE_URL`
 - `AIRTABLE_WEBHOOK_SECRET`
 
 The queue can be limited to specific tables with `AIRTABLE_QUEUE_TABLES`.
 Submission targets can be limited with `AIRTABLE_SUBMISSION_TABLES`.
+Part-number assignment reuses `AIRTABLE_QUEUE_TABLES` and can read from a
+separate view with `AIRTABLE_PART_NUMBER_VIEW`, for example
+`Parts by subsystem (no COTS)`.
 
 ### Onshape
 
