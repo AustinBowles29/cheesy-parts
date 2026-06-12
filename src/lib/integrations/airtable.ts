@@ -452,6 +452,25 @@ function fieldChoices(field: AirtableFieldSchema | undefined) {
   );
 }
 
+function normalizedMachineChoices(tables: AirtableTableSchema[]) {
+  const choices = uniqueSorted(
+    tables.flatMap((table) =>
+      fieldChoices(fieldByName(table, ["Machine", "Machine Type"])),
+    ),
+  );
+  const hasRouter = choices.some(
+    (choice) => choice.trim().toLowerCase() === "router",
+  );
+
+  if (!hasRouter) {
+    return choices;
+  }
+
+  return choices.filter(
+    (choice) => choice.trim().toLowerCase() !== "cnc router",
+  );
+}
+
 export async function getAirtableSubmissionFieldOptions(): Promise<SubmissionFieldOptions> {
   if (!isAirtableSchemaConfigured()) {
     return {
@@ -499,11 +518,7 @@ export async function getAirtableSubmissionFieldOptions(): Promise<SubmissionFie
       statuses: uniqueSorted(
         tables.flatMap((table) => fieldChoices(fieldByName(table, ["Status"]))),
       ),
-      machineTypes: uniqueSorted(
-        tables.flatMap((table) =>
-          fieldChoices(fieldByName(table, ["Machine", "Machine Type"])),
-        ),
-      ),
+      machineTypes: normalizedMachineChoices(tables),
       postProcesses: uniqueSorted(
         tables.flatMap((table) =>
           fieldChoices(fieldByName(table, ["Post-process", "Finish"])),
@@ -1016,6 +1031,17 @@ function requestToFields(
   if (drawingField && drawingValue !== undefined) {
     fields[drawingField.name] = drawingValue;
   }
+  const dxfField = writableFieldByName(table, [
+    "DXF",
+    "DXF File",
+    "DXF / File",
+    "Part DXF",
+    "Drawing DXF",
+  ]);
+  const dxfValue = attachmentFields(request.attachments, "dxf");
+  if (dxfField && dxfValue !== undefined) {
+    fields[dxfField.name] = dxfValue;
+  }
   addMappedField(fields, table, ["Print Material"], request.printMaterial);
   addMappedField(fields, table, ["Print Color"], request.printColor);
   addMappedField(fields, table, ["Infill"], request.infill);
@@ -1362,7 +1388,13 @@ export async function updateAirtableDrawingAttachment(
     "Drawing PDF",
   ]);
   const drawingValue = drawingFieldValue(drawingField, request.attachments);
-  const dxfField = writableFieldByName(table, ["DXF"]);
+  const dxfField = writableFieldByName(table, [
+    "DXF",
+    "DXF File",
+    "DXF / File",
+    "Part DXF",
+    "Drawing DXF",
+  ]);
   const dxfValue = attachmentFields(request.attachments, "dxf");
   const fields: Record<string, unknown> = {};
 

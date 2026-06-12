@@ -11,7 +11,6 @@ import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   FINISHES,
-  MACHINE_TYPES,
   PRIORITIES,
 } from "@/lib/constants";
 import { coerceMachineType, deriveMachineType } from "@/lib/manufacturing";
@@ -104,8 +103,50 @@ function dropdownInitialValue(value: string | undefined, options: string[]) {
   return options.includes(trimmed) ? trimmed : "";
 }
 
+function machineDropdownValue(value: string | undefined, options: string[]) {
+  const exactValue = dropdownInitialValue(value, options);
+  if (exactValue || !value?.trim() || options.length === 0) {
+    return exactValue;
+  }
+
+  const normalizedValue = value.trim().toLowerCase();
+  const aliases: Record<string, string[]> = {
+    "cnc router": ["router"],
+    router: ["cnc router"],
+    "cnc mill": ["haas", "mill"],
+    haas: ["cnc mill"],
+    mill: ["cnc mill"],
+    "3dp": ["3d print", "3d printed"],
+    "3d print": ["3dp", "3d printed"],
+    "3d printed": ["3dp", "3d print"],
+  };
+  const candidates = new Set([
+    normalizedValue,
+    ...(aliases[normalizedValue] ?? []),
+  ]);
+
+  return (
+    options.find((option) => candidates.has(option.trim().toLowerCase())) ?? ""
+  );
+}
+
 function uniqueStrings(values: readonly string[]) {
   return Array.from(new Set(values.filter(Boolean)));
+}
+
+function normalizeMachineOptions(options: readonly string[]) {
+  const uniqueOptions = uniqueStrings(options);
+  const hasRouter = uniqueOptions.some(
+    (option) => option.trim().toLowerCase() === "router",
+  );
+
+  if (!hasRouter) {
+    return uniqueOptions;
+  }
+
+  return uniqueOptions.filter(
+    (option) => option.trim().toLowerCase() !== "cnc router",
+  );
 }
 
 function airtableTableOptionValue(
@@ -141,11 +182,7 @@ export function OnshapeSubmissionPanel({
     [fieldOptions.airtableTables],
   );
   const machineOptions = useMemo(
-    () =>
-      uniqueStrings([
-        ...fieldOptions.machineTypes,
-        ...MACHINE_TYPES,
-      ]),
+    () => normalizeMachineOptions(fieldOptions.machineTypes),
     [fieldOptions.machineTypes],
   );
   const postProcessOptions = useMemo(
@@ -204,7 +241,7 @@ export function OnshapeSubmissionPanel({
   const [hasDrawing, setHasDrawing] = useState(false);
   const [drawingFileName, setDrawingFileName] = useState("");
   const [machineOverride, setMachineOverride] = useState(() =>
-    dropdownInitialValue(defaults.machineType, machineOptions),
+    machineDropdownValue(defaults.machineType, machineOptions),
   );
   const [onshapePartUrl, setOnshapePartUrl] = useState(
     defaults.onshapePartUrl ?? "",
@@ -278,7 +315,7 @@ export function OnshapeSubmissionPanel({
     );
     updatePristineField(
       "machineType",
-      dropdownInitialValue(defaults.machineType, machineOptions),
+      machineDropdownValue(defaults.machineType, machineOptions),
       setMachineOverride,
     );
     updatePristineField(
@@ -319,8 +356,15 @@ export function OnshapeSubmissionPanel({
     () => deriveMachineType({ material, thickness, partName, hasDrawing }),
     [material, thickness, partName, hasDrawing],
   );
-  const machineSelection = machineOverride || inferredMachineType;
-  const machineType = coerceMachineType(machineSelection) ?? inferredMachineType;
+  const inferredMachineSelection = machineDropdownValue(
+    inferredMachineType,
+    machineOptions,
+  );
+  const machineSelection = machineOverride || inferredMachineSelection;
+  const machineType =
+    coerceMachineType(machineSelection) ??
+    coerceMachineType(inferredMachineType) ??
+    inferredMachineType;
   const is3DP = machineType === "3DP";
   const isVendor = machineType === "Vendor";
 
@@ -733,8 +777,11 @@ export function OnshapeSubmissionPanel({
                   required
                   {...invalidProps("machineType")}
                 >
+                  <option value="">Select machine</option>
                   {machineOptions.map((item) => (
-                    <option key={item}>{item}</option>
+                    <option key={item} value={item}>
+                      {item}
+                    </option>
                   ))}
                 </select>
               </label>

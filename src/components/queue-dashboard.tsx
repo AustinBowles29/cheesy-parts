@@ -20,7 +20,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { MACHINE_TYPES, STATUSES } from "@/lib/constants";
+import { STATUSES } from "@/lib/constants";
 import { coerceStatus } from "@/lib/manufacturing";
 import { currentOnshapeSubmitHref } from "@/lib/onshape-panel-session";
 import type {
@@ -36,6 +36,7 @@ interface QueueDashboardProps {
   initialManufacturingUsers: SlackUser[];
   initialOnshapeUser?: OnshapeUser;
   initialStatusOptions: string[];
+  initialMachineTypeOptions: string[];
   initialTableStatusOptions: Record<string, string[]>;
   initialSyncedAt: string;
   initialError?: string;
@@ -202,6 +203,7 @@ export function QueueDashboard({
   initialManufacturingUsers,
   initialOnshapeUser,
   initialStatusOptions,
+  initialMachineTypeOptions,
   initialTableStatusOptions,
   initialSyncedAt,
   initialError,
@@ -261,10 +263,14 @@ export function QueueDashboard({
   const options = useMemo(
     () => ({
       subsystem: uniqueOptions(requests, (request) => request.subsystem),
+      machineType:
+        initialMachineTypeOptions.length > 0
+          ? initialMachineTypeOptions
+          : uniqueOptions(requests, (request) => request.machineType),
       submitter: uniqueOptions(requests, (request) => request.submitter),
       material: uniqueOptions(requests, (request) => request.material),
     }),
-    [requests],
+    [initialMachineTypeOptions, requests],
   );
   const statusOptions = useMemo(() => {
     const labels =
@@ -750,7 +756,7 @@ export function QueueDashboard({
             <FilterSelect
               label="Machine type"
               value={filters.machineType}
-              options={MACHINE_TYPES}
+              options={options.machineType}
               onChange={(value) =>
                 setFilters((current) => ({ ...current, machineType: value }))
               }

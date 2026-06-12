@@ -89,6 +89,12 @@ interface OnshapeTranslationResponse {
   failureReason?: string | null;
 }
 
+interface OnshapeTranslationFormat {
+  name?: string;
+  translatorName?: string;
+  validDestinationFormat?: boolean;
+}
+
 export interface OnshapeContext {
   documentId: string;
   wvm: "w" | "v" | "m";
@@ -1611,13 +1617,14 @@ async function exportDrawingFile(input: {
 }) {
   const translationPath = `/v6/drawings/d/${input.documentId}/${input.wvm}/${input.wvmId}/e/${input.drawingElementId}/translations`;
   const translationUrl = `${apiBaseUrlForServer(input.server)}${translationPath}`;
+  const formatName = await drawingTranslationFormatName(input);
   let translation: OnshapeTranslationResponse;
   try {
     translation = await onshapePostJson<OnshapeTranslationResponse>(
       translationPath,
       input.accessToken,
       {
-        formatName: input.formatName,
+        formatName,
         storeInDocument: false,
         translate: true,
       },
@@ -1699,6 +1706,54 @@ async function exportDrawingFile(input: {
       errors[0] || "No download response was attempted."
     }`,
   );
+}
+
+async function drawingTranslationFormatName(input: {
+  accessToken: string;
+  documentId: string;
+  wvm: string;
+  wvmId: string;
+  drawingElementId: string;
+  formatName: "PDF" | "DXF";
+  server?: string;
+}) {
+  const desiredFormat = input.formatName.toLowerCase();
+
+  try {
+    const formats = await onshapeFetchJson<OnshapeTranslationFormat[]>(
+      `/v6/drawings/d/${input.documentId}/${input.wvm}/${input.wvmId}/e/${input.drawingElementId}/translationformats`,
+      input.accessToken,
+      input.server,
+    );
+    const validFormats = formats.filter(
+      (format) => format.validDestinationFormat !== false,
+    );
+    const exactName = validFormats.find(
+      (format) => normalizeString(format.name).toLowerCase() === desiredFormat,
+    );
+    if (exactName?.name) {
+      return exactName.name;
+    }
+
+    const exactTranslator = validFormats.find(
+      (format) =>
+        normalizeString(format.translatorName).toLowerCase() === desiredFormat,
+    );
+    if (exactTranslator?.name) {
+      return exactTranslator.name;
+    }
+
+    const containingName = validFormats.find((format) =>
+      normalizeString(format.name).toLowerCase().includes(desiredFormat),
+    );
+    if (containingName?.name) {
+      return containingName.name;
+    }
+  } catch {
+    return input.formatName;
+  }
+
+  return input.formatName;
 }
 
 async function exportDrawingPdf(input: {

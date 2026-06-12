@@ -17,6 +17,7 @@ export default async function Home() {
   let manufacturingUsers: SlackUser[] = [];
   let onshapeUser: OnshapeUser | undefined;
   let statusOptions: string[] = [];
+  let machineTypeOptions: string[] = [];
   let tableStatusOptions: Record<string, string[]> = {};
   let initialError: string | undefined;
 
@@ -32,6 +33,7 @@ export default async function Home() {
     manufacturingUsers = slackUsers.users;
     onshapeUser = loadedOnshapeUser.user;
     statusOptions = fieldOptions.statuses;
+    machineTypeOptions = fieldOptions.machineTypes;
     tableStatusOptions = Object.fromEntries(
       (fieldOptions.airtableTables ?? []).flatMap((table) => [
         [table.id, table.statuses ?? []],
@@ -50,6 +52,7 @@ export default async function Home() {
       initialManufacturingUsers={manufacturingUsers}
       initialOnshapeUser={onshapeUser}
       initialStatusOptions={statusOptions}
+      initialMachineTypeOptions={machineTypeOptions}
       initialTableStatusOptions={tableStatusOptions}
       initialSyncedAt={new Date().toISOString()}
       initialError={initialError}

@@ -67,6 +67,33 @@ function validateRequest(request: ManufacturingRequest) {
   }
 }
 
+function attachmentIdentity(attachment: ManufacturingRequest["attachments"][number]) {
+  return [
+    attachment.kind,
+    normalizeString(attachment.id),
+    normalizeString(attachment.url),
+    normalizeString(attachment.filename),
+  ].join("|");
+}
+
+function mergeAttachments(
+  baseAttachments: ManufacturingRequest["attachments"],
+  incomingAttachments: ManufacturingRequest["attachments"],
+) {
+  const merged = [...baseAttachments];
+  const seen = new Set(merged.map(attachmentIdentity));
+
+  for (const attachment of incomingAttachments) {
+    const identity = attachmentIdentity(attachment);
+    if (!seen.has(identity)) {
+      merged.push(attachment);
+      seen.add(identity);
+    }
+  }
+
+  return merged;
+}
+
 export function buildManufacturingRequest(
   input: SubmissionInput,
 ): ManufacturingRequest {
@@ -276,10 +303,10 @@ export async function attachManufacturingRequestDrawing(
       if (persisted) {
         updatedRequest = {
           ...updatedRequest,
-          attachments:
-            persisted.attachments.length > 0
-              ? persisted.attachments
-              : updatedRequest.attachments,
+          attachments: mergeAttachments(
+            updatedRequest.attachments,
+            persisted.attachments,
+          ),
         };
       }
     } catch (error) {
