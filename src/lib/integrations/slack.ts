@@ -1,5 +1,6 @@
 import { isDrawingPdfAttachment, isDxfAttachment } from "../attachments";
 import { normalizeString } from "../manufacturing";
+import { numberingSubsystemFromName } from "../part-numbering";
 import type { ManufacturingRequest, ManufacturingStatus, SlackUser } from "../types";
 import type { OnshapeCommentNotification } from "./onshape-comments";
 import {
@@ -204,7 +205,8 @@ function subsystemOwnerMapRaw() {
 }
 
 function normalizedSubsystemKey(value: string) {
-  return normalizeString(value).toLowerCase();
+  const subsystem = numberingSubsystemFromName(value);
+  return normalizeString(subsystem?.label ?? value).toLowerCase();
 }
 
 function normalizeSlackUserId(value: unknown) {
