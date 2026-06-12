@@ -63,7 +63,8 @@ const statusAliases: Record<string, ManufacturingStatus> = {
 };
 
 const machineTypeAliases: Record<string, MachineType> = {
-  "cnc mill": "Mill",
+  "cnc mill": "CNC Mill",
+  haas: "CNC Mill",
   "3d print": "3DP",
   "3d printed": "3DP",
   "3dp": "3DP",
@@ -88,10 +89,12 @@ export function coerceFinish(value: unknown): Finish {
 }
 
 export function coerceMachineType(value: unknown): MachineType | undefined {
-  return (
-    machineTypeAliases[normalizedChoiceKey(value)] ??
-    matchingChoice(MACHINE_TYPES, value)
-  );
+  const normalized = normalizeString(value);
+  const matched =
+    machineTypeAliases[normalizedChoiceKey(normalized)] ??
+    matchingChoice(MACHINE_TYPES, normalized);
+
+  return matched ?? (normalized || undefined);
 }
 
 export function coercePriority(value: unknown): Priority {
@@ -174,7 +177,7 @@ export function inferSubsystemFromTitle(title?: string) {
 }
 
 export function is3DPrint(machineType: MachineType) {
-  return machineType === "3DP";
+  return /^(3dp|3d print|3d printed)$/i.test(normalizeString(machineType));
 }
 
 export function inferInitialStatus(input: {
@@ -194,7 +197,8 @@ export function inferInitialStatus(input: {
     return "Needs Drawing";
   }
 
-  if (input.machineType === "Mill" || input.machineType === "Lathe") {
+  const machineType = normalizeString(input.machineType).toLowerCase();
+  if (machineType.includes("mill") || machineType.includes("lathe")) {
     return "Needs CAM";
   }
 

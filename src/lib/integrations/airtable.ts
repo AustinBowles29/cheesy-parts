@@ -741,16 +741,26 @@ function statusForTableChoice(
 }
 
 function machineChoiceAliases(machineType: ManufacturingRequest["machineType"]) {
-  if (machineType === "Mill") {
-    return ["CNC Mill"];
+  const normalizedMachine = normalizeString(machineType).toLowerCase();
+
+  if (normalizedMachine === "cnc mill" || normalizedMachine === "haas") {
+    return ["CNC Mill", "Haas", "HAAS", "Mill"];
   }
 
-  if (machineType === "3DP") {
-    return ["3D Print", "3D Printed"];
+  if (normalizedMachine === "mill") {
+    return ["Mill"];
   }
 
-  if (machineType === "Laser") {
-    return ["Laser cut", "Laser cutter"];
+  if (normalizedMachine.includes("router")) {
+    return ["CNC Router", "Router"];
+  }
+
+  if (is3DPrint(machineType)) {
+    return ["3DP", "3D Print", "3D Printed"];
+  }
+
+  if (normalizedMachine === "laser") {
+    return ["Laser", "Laser cut", "Laser cutter"];
   }
 
   return [];

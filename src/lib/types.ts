@@ -10,7 +10,7 @@ import type {
 export type ManufacturingStatus = (typeof STATUSES)[number] | (string & {});
 export type Finish = (typeof FINISHES)[number] | (string & {});
 export type Category = (typeof CATEGORIES)[number];
-export type MachineType = (typeof MACHINE_TYPES)[number];
+export type MachineType = (typeof MACHINE_TYPES)[number] | (string & {});
 export type AttachmentKind = (typeof ATTACHMENT_KINDS)[number];
 export type Priority = (typeof PRIORITIES)[number];
 
