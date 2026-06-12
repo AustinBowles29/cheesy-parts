@@ -572,12 +572,16 @@ function attachmentFields(
   kind: AttachmentRef["kind"],
 ) {
   const items = attachments.filter((attachment) => attachment.kind === kind);
+  return attachmentItems(items);
+}
+
+function attachmentItems(attachments: AttachmentRef[]) {
+  const items = attachments.filter((attachment) => attachment.url);
   if (items.length === 0) {
     return undefined;
   }
 
   return items
-    .filter((attachment) => attachment.url)
     .map((attachment) => ({
       url: attachment.url,
       filename: attachment.filename,
@@ -587,23 +591,88 @@ function attachmentFields(
 function drawingFieldValue(
   field: AirtableFieldSchema | undefined,
   attachments: AttachmentRef[],
+  options: { includeDxf?: boolean } = {},
 ) {
   const drawingAttachments = attachments
     .filter((attachment) => attachment.kind === "drawing")
     .filter((attachment) => attachment.url);
+  const dxfAttachments = options.includeDxf
+    ? attachments
+        .filter((attachment) => attachment.kind === "dxf")
+        .filter((attachment) => attachment.url)
+    : [];
+
+  if (field?.type === "multipleAttachments") {
+    return attachmentItems([
+      ...drawingAttachments.filter(isPdfAttachment),
+      ...dxfAttachments,
+    ]);
+  }
 
   if (drawingAttachments.length === 0) {
     return undefined;
   }
+  return drawingAttachments[0]?.url;
+}
+
+function attachmentFieldValue(
+  field: AirtableFieldSchema | undefined,
+  attachments: AttachmentRef[],
+  kind: AttachmentRef["kind"],
+) {
+  const matchingAttachments = attachments
+    .filter((attachment) => attachment.kind === kind)
+    .filter((attachment) => attachment.url);
 
   if (field?.type === "multipleAttachments") {
-    return attachmentFields(
-      drawingAttachments.filter(isPdfAttachment),
-      "drawing",
-    );
+    return attachmentItems(matchingAttachments);
   }
 
-  return drawingAttachments[0]?.url;
+  return matchingAttachments[0]?.url;
+}
+
+const DRAWING_ATTACHMENT_FIELD_NAMES = [
+  "Part Drawing / File (Check with Designed)",
+  "Part Drawing / File (Check with Designer)",
+  "Drawing",
+  "Drawing PDF",
+];
+
+const DXF_ATTACHMENT_FIELD_NAMES = [
+  "DXF",
+  "DXF File",
+  "DXF / File",
+  "DXF File (Check with Designed)",
+  "DXF File (Check with Designer)",
+  "Part DXF",
+  "Part DXF / File",
+  "Part DXF / File (Check with Designed)",
+  "Part DXF / File (Check with Designer)",
+  "Drawing DXF",
+  "Router DXF",
+  "Cut DXF",
+];
+
+function dxfFieldForTable(table: AirtableTableSchema | null | undefined) {
+  return writableFieldByName(table, DXF_ATTACHMENT_FIELD_NAMES);
+}
+
+function attachmentKindFromAirtableFile(
+  fallbackKind: AttachmentRef["kind"],
+  filename: string,
+  contentType: string,
+) {
+  const normalizedFilename = filename.toLowerCase();
+  const normalizedContentType = contentType.toLowerCase();
+
+  if (
+    fallbackKind === "drawing" &&
+    (normalizedContentType.includes("dxf") || normalizedFilename.endsWith(".dxf"))
+  ) {
+    return "dxf";
+  }
+
+  return fallbackKind;
 }
 
 function attachmentRefsFromField(
@@ -630,6 +699,11 @@ function attachmentRefsFromField(
       const contentType = normalizeString(record.type) || "application/octet-stream";
       const sizeValue = record.size;
       const size = typeof sizeValue === "number" ? sizeValue : 0;
+      const attachmentKind = attachmentKindFromAirtableFile(
+        kind,
+        filename,
+        contentType,
+      );
 
       if (!url) {
         continue;
@@ -639,7 +713,7 @@ function attachmentRefsFromField(
         id: normalizeString(record.id) || url,
         filename,
         contentType,
-        kind,
+        kind: attachmentKind,
         size,
         url,
       });
@@ -653,10 +727,10 @@ function attachmentRefsFromFields(fields: Record<string, unknown>) {
   return [
     ...attachmentRefsFromField(
       fields,
-      ["Part Drawing / File (Check with Designed)", "Drawing", "Drawing PDF"],
+      DRAWING_ATTACHMENT_FIELD_NAMES,
       "drawing",
     ),
-    ...attachmentRefsFromField(fields, ["DXF"], "dxf"),
+    ...attachmentRefsFromField(fields, DXF_ATTACHMENT_FIELD_NAMES, "dxf"),
     ...attachmentRefsFromField(fields, ["Other files"], "other"),
   ];
 }
@@ -1026,25 +1100,17 @@ function requestToFields(
     ["Branch/Version Reference"],
     request.branchVersionReference,
   );
-  const drawingField = writableFieldByName(table, [
-    "Part Drawing / File (Check with Designed)",
-    "Drawing",
-    "Drawing PDF",
-  ]);
-  const drawingValue = drawingFieldValue(drawingField, request.attachments);
-  if (drawingField && drawingValue !== undefined) {
-    fields[drawingField.name] = drawingValue;
-  }
-  const dxfField = writableFieldByName(table, [
-    "DXF",
-    "DXF File",
-    "DXF / File",
-    "Part DXF",
-    "Drawing DXF",
-  ]);
-  const dxfValue = attachmentFields(request.attachments, "dxf");
+  const dxfField = dxfFieldForTable(table);
+  const drawingField = writableFieldByName(table, DRAWING_ATTACHMENT_FIELD_NAMES);
+  const drawingValue = drawingFieldValue(drawingField, request.attachments, {
+    includeDxf: !dxfField,
+  });
+  const dxfValue = attachmentFieldValue(dxfField, request.attachments, "dxf");
   if (dxfField && dxfValue !== undefined) {
     fields[dxfField.name] = dxfValue;
+  }
+  if (drawingField && drawingValue !== undefined) {
+    fields[drawingField.name] = drawingValue;
   }
   addMappedField(fields, table, ["Print Material"], request.printMaterial);
   addMappedField(fields, table, ["Print Color"], request.printColor);
@@ -1386,20 +1452,12 @@ export async function updateAirtableDrawingAttachment(
 ) {
   const resolvedTarget = resolveAirtableTableTarget(tableHint);
   const { target, table } = await tableSchemaForTarget(resolvedTarget);
-  const drawingField = writableFieldByName(table, [
-    "Part Drawing / File (Check with Designed)",
-    "Drawing",
-    "Drawing PDF",
-  ]);
-  const drawingValue = drawingFieldValue(drawingField, request.attachments);
-  const dxfField = writableFieldByName(table, [
-    "DXF",
-    "DXF File",
-    "DXF / File",
-    "Part DXF",
-    "Drawing DXF",
-  ]);
-  const dxfValue = attachmentFields(request.attachments, "dxf");
+  const drawingField = writableFieldByName(table, DRAWING_ATTACHMENT_FIELD_NAMES);
+  const dxfField = dxfFieldForTable(table);
+  const drawingValue = drawingFieldValue(drawingField, request.attachments, {
+    includeDxf: !dxfField,
+  });
+  const dxfValue = attachmentFieldValue(dxfField, request.attachments, "dxf");
   const fields: Record<string, unknown> = {};
 
   if (drawingField && drawingValue !== undefined) {
