@@ -10,6 +10,7 @@ import {
   normalizeQuantity,
   normalizeString,
 } from "@/lib/manufacturing";
+import { subsystemChoiceForPartNumber } from "@/lib/part-numbering";
 import type { SubmissionFieldOptions, SubmissionInput } from "@/lib/types";
 import type { OnshapeMetadataResult } from "@/lib/integrations/onshape";
 
@@ -163,6 +164,8 @@ export function defaultsFromPanelParams(
     onshapeDrawingUrl,
     onshapeDrawingElementId: drawingElementId,
     onshapeDocumentId: context?.documentId,
+    onshapeElementId: context?.elementId,
+    onshapePartId: context?.partId,
     onshapeServer: context?.server ?? onshapeServer,
     onshapeWvm: context?.wvm,
     onshapeWvmId: context?.wvmId,
@@ -226,6 +229,8 @@ export function mergeAutofillDefaults(
       defaults.onshapeDrawingElementId || autofill.onshapeDrawingElementId,
     onshapeDocumentId:
       defaults.onshapeDocumentId || autofill.onshapeDocumentId,
+    onshapeElementId: defaults.onshapeElementId || autofill.onshapeElementId,
+    onshapePartId: defaults.onshapePartId || autofill.onshapePartId,
     onshapeServer: defaults.onshapeServer || autofill.onshapeServer,
     onshapeWvm: defaults.onshapeWvm || autofill.onshapeWvm,
     onshapeWvmId: defaults.onshapeWvmId || autofill.onshapeWvmId,
@@ -292,11 +297,19 @@ export async function loadOnshapePanelData(
       : Promise.resolve(emptySubmissionFieldOptions()),
   ]);
 
+  const defaults = mergeAutofillDefaults(
+    mergeAutofillDefaults(panelDefaults, onshapeUser.defaults),
+    onshapeMetadata.defaults,
+  );
+  if (!defaults.subsystem && defaults.partNumber) {
+    defaults.subsystem = subsystemChoiceForPartNumber(
+      defaults.partNumber,
+      fieldOptions.subsystems,
+    );
+  }
+
   return {
-    defaults: mergeAutofillDefaults(
-      mergeAutofillDefaults(panelDefaults, onshapeUser.defaults),
-      onshapeMetadata.defaults,
-    ),
+    defaults,
     fieldOptions,
     onshapeAuthUrl: onshapeMetadata.authUrl,
     onshapeWarning: onshapeMetadata.warning,

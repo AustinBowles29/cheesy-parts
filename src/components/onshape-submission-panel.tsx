@@ -4,6 +4,7 @@ import {
   Boxes,
   ClipboardCheck,
   FileUp,
+  Hash,
   Link as LinkIcon,
   Send,
 } from "lucide-react";
@@ -14,6 +15,12 @@ import {
   PRIORITIES,
 } from "@/lib/constants";
 import { coerceMachineType, deriveMachineType } from "@/lib/manufacturing";
+import {
+  NUMBERING_SUBSYSTEMS,
+  numberingSubsystemFromName,
+  numberingSubsystemFromPartNumber,
+  subsystemChoiceForPartNumber,
+} from "@/lib/part-numbering";
 import type {
   SubmissionFieldOptions,
   SubmissionInput,
@@ -32,6 +39,12 @@ type SubmitState =
   | { status: "idle" }
   | { status: "submitting" }
   | { status: "success"; message: string; requestId: string }
+  | { status: "error"; message: string };
+
+type AssignmentState =
+  | { status: "idle" }
+  | { status: "assigning" }
+  | { status: "success"; message: string }
   | { status: "error"; message: string };
 
 const requiredFields = [
@@ -101,6 +114,17 @@ function dropdownInitialValue(value: string | undefined, options: string[]) {
   }
 
   return options.includes(trimmed) ? trimmed : "";
+}
+
+function subsystemDropdownValue(
+  value: string | undefined,
+  partNumber: string | undefined,
+  options: string[],
+) {
+  return (
+    dropdownInitialValue(value, options) ||
+    dropdownInitialValue(subsystemChoiceForPartNumber(partNumber, options), options)
+  );
 }
 
 function machineDropdownValue(value: string | undefined, options: string[]) {
@@ -177,6 +201,7 @@ export function OnshapeSubmissionPanel({
   onshapeAuthUrl,
   onshapeWarning,
 }: OnshapeSubmissionPanelProps) {
+  const [panelView, setPanelView] = useState<"submit" | "assign">("submit");
   const airtableTables = useMemo(
     () => fieldOptions.airtableTables ?? [],
     [fieldOptions.airtableTables],
@@ -206,11 +231,15 @@ export function OnshapeSubmissionPanel({
         defaults.onshapeWvm,
         defaults.onshapeWvmId,
         defaults.onshapePartUrl,
+        defaults.onshapeElementId,
+        defaults.onshapePartId,
       ]
         .map((value) => String(value ?? ""))
         .join("|"),
     [
       defaults.onshapeDocumentId,
+      defaults.onshapeElementId,
+      defaults.onshapePartId,
       defaults.onshapePartUrl,
       defaults.onshapeWvm,
       defaults.onshapeWvmId,
@@ -233,7 +262,11 @@ export function OnshapeSubmissionPanel({
     String(defaults.quantity ?? 1),
   );
   const [subsystem, setSubsystem] = useState(() =>
-    dropdownInitialValue(defaults.subsystem, fieldOptions.subsystems),
+    subsystemDropdownValue(
+      defaults.subsystem,
+      defaults.partNumber,
+      fieldOptions.subsystems,
+    ),
   );
   const [vendorName, setVendorName] = useState(() =>
     dropdownInitialValue(defaults.vendorName, fieldOptions.vendors),
@@ -251,6 +284,22 @@ export function OnshapeSubmissionPanel({
   );
   const [assemblyUrl, setAssemblyUrl] = useState(defaults.assemblyUrl ?? "");
   const [submitState, setSubmitState] = useState<SubmitState>({
+    status: "idle",
+  });
+  const assignmentDirtyFieldsRef = useRef<Set<string>>(new Set());
+  const [assignmentSubsystem, setAssignmentSubsystem] = useState(
+    () =>
+      numberingSubsystemFromName(defaults.subsystem)?.label ??
+      numberingSubsystemFromPartNumber(defaults.partNumber)?.label ??
+      "",
+  );
+  const [assignmentDescription, setAssignmentDescription] = useState(
+    defaults.notes ?? defaults.description ?? defaults.partName ?? "",
+  );
+  const [assignmentMaterial, setAssignmentMaterial] = useState(
+    defaults.material ?? "",
+  );
+  const [assignmentState, setAssignmentState] = useState<AssignmentState>({
     status: "idle",
   });
   const [invalidFields, setInvalidFields] = useState<Set<string>>(new Set());
@@ -272,6 +321,7 @@ export function OnshapeSubmissionPanel({
   useEffect(() => {
     if (selectedContextKeyRef.current !== selectedContextKey) {
       dirtyFieldsRef.current.clear();
+      assignmentDirtyFieldsRef.current.clear();
       selectedContextKeyRef.current = selectedContextKey;
     }
   }, [selectedContextKey]);
@@ -305,7 +355,11 @@ export function OnshapeSubmissionPanel({
     updatePristineField("quantity", String(defaults.quantity ?? 1), setQuantity);
     updatePristineField(
       "subsystem",
-      dropdownInitialValue(defaults.subsystem, fieldOptions.subsystems),
+      subsystemDropdownValue(
+        defaults.subsystem,
+        defaults.partNumber,
+        fieldOptions.subsystems,
+      ),
       setSubsystem,
     );
     updatePristineField(
@@ -329,6 +383,33 @@ export function OnshapeSubmissionPanel({
       setOnshapeDrawingUrl,
     );
     updatePristineField("assemblyUrl", defaults.assemblyUrl ?? "", setAssemblyUrl);
+
+    const updatePristineAssignmentField = (
+      name: string,
+      nextValue: string,
+      setValue: (value: string) => void,
+    ) => {
+      if (!assignmentDirtyFieldsRef.current.has(name)) {
+        setValue(nextValue);
+      }
+    };
+    updatePristineAssignmentField(
+      "subsystem",
+      numberingSubsystemFromName(defaults.subsystem)?.label ??
+        numberingSubsystemFromPartNumber(defaults.partNumber)?.label ??
+        "",
+      setAssignmentSubsystem,
+    );
+    updatePristineAssignmentField(
+      "description",
+      defaults.notes ?? defaults.description ?? defaults.partName ?? "",
+      setAssignmentDescription,
+    );
+    updatePristineAssignmentField(
+      "material",
+      defaults.material ?? "",
+      setAssignmentMaterial,
+    );
   }, [
     airtableTables,
     defaults,
@@ -388,6 +469,10 @@ export function OnshapeSubmissionPanel({
 
   function markDirty(name: string) {
     dirtyFieldsRef.current.add(name);
+  }
+
+  function markAssignmentDirty(name: string) {
+    assignmentDirtyFieldsRef.current.add(name);
   }
 
   function openOnshapeAuth(event: React.MouseEvent<HTMLAnchorElement>) {
@@ -547,6 +632,282 @@ export function OnshapeSubmissionPanel({
     }
   }
 
+  async function assignPartNumber(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    const selectedSubsystem = numberingSubsystemFromName(assignmentSubsystem);
+    if (!selectedSubsystem) {
+      addToast({
+        variant: "warning",
+        title: "Choose subsystem",
+        message: "Select a numbered robot subsystem before assigning a part number.",
+      });
+      return;
+    }
+
+    if (!onshapeAccessToken) {
+      addToast({
+        variant: "warning",
+        title: "Connect Onshape",
+        message: "Connect Onshape before assigning a part number.",
+      });
+      return;
+    }
+
+    setAssignmentState({ status: "assigning" });
+
+    try {
+      const response = await fetch("/api/onshape/part-number", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${onshapeAccessToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          ...defaults,
+          subsystem: assignmentSubsystem,
+          description: assignmentDescription,
+          notes: assignmentDescription,
+          material: assignmentMaterial,
+          onshapePartUrl,
+        }),
+      });
+      const body = await response.json();
+
+      if (!response.ok) {
+        throw new Error(body.error ?? "Part number could not be assigned.");
+      }
+
+      const assignedPartNumber = String(body.data?.partNumber ?? "");
+      const subsystemChoice =
+        subsystemChoiceForPartNumber(assignedPartNumber, fieldOptions.subsystems) ||
+        selectedSubsystem.label;
+
+      setPartNumber(assignedPartNumber);
+      setNotes(assignmentDescription);
+      setMaterial(assignmentMaterial);
+      setSubsystem(subsystemChoice);
+      addToast({
+        variant: "success",
+        title: "Part number assigned",
+        message: `${assignedPartNumber} was written to Onshape.`,
+      });
+      showIntegrationWarnings(body.warnings);
+      setAssignmentState({
+        status: "success",
+        message: `${assignedPartNumber} was assigned to the selected part.`,
+      });
+    } catch (error) {
+      addToast({
+        variant: "danger",
+        title: "Assignment failed",
+        message:
+          error instanceof Error
+            ? error.message
+            : "Part number could not be assigned.",
+      });
+      setAssignmentState({
+        status: "error",
+        message:
+          error instanceof Error
+            ? error.message
+            : "Part number could not be assigned.",
+      });
+    }
+  }
+
+  const selectedNumberingSubsystem =
+    numberingSubsystemFromName(assignmentSubsystem);
+
+  if (panelView === "assign") {
+    return (
+      <main className="app-scroll-page bg-[#f7faff] text-[#141515]">
+        <ToastViewport toasts={toasts} onDismiss={dismissToast} />
+        <form
+          noValidate
+          onSubmit={assignPartNumber}
+          className="page-transition mx-auto flex w-full max-w-6xl flex-col gap-5 overflow-x-hidden px-4 py-5 sm:px-6 lg:px-8"
+        >
+          <header className="flex flex-col gap-4 border-b border-[#d8e2f0] pb-5 md:flex-row md:items-end md:justify-between">
+            <div>
+              <p className="text-sm font-semibold uppercase text-[#0b3d91]">
+                Team 254 Manufacturing
+              </p>
+              <h1 className="mt-1 text-3xl font-semibold">
+                Assign part number
+              </h1>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => setPanelView("submit")}
+                className="interactive inline-flex h-10 items-center gap-2 rounded-md border border-[#b8c9e3] bg-white px-3 text-sm font-medium hover:bg-[#edf4ff]"
+              >
+                <Boxes size={17} aria-hidden="true" />
+                Submit part
+              </button>
+              <Link
+                href="/"
+                className="interactive inline-flex h-10 items-center gap-2 rounded-md border border-[#b8c9e3] bg-white px-3 text-sm font-medium hover:bg-[#edf4ff]"
+              >
+                <ClipboardCheck size={17} aria-hidden="true" />
+                Queue
+              </Link>
+            </div>
+          </header>
+
+          <section className="rounded-lg border border-[#b7cef2] bg-[#eef5ff] p-4">
+            <div className="grid min-w-0 gap-3 sm:grid-cols-2 xl:grid-cols-[minmax(0,2fr)_repeat(3,minmax(0,1fr))]">
+              <div className="min-w-0 sm:col-span-2 xl:col-span-1">
+                <div className="flex items-center gap-2 text-sm font-semibold text-[#0b3d91]">
+                  <Boxes size={17} aria-hidden="true" />
+                  Selected part
+                </div>
+                <div className="mt-2 min-w-0 break-words text-lg font-semibold leading-snug">
+                  {partName || "No part selected"}
+                </div>
+                <div className="min-w-0 break-words text-sm text-[#586158]">
+                  {partNumber || "No part number"}
+                </div>
+              </div>
+              <InfoItem label="Source document" value={defaults.sourceDocument || "-"} />
+              <InfoItem
+                label="Branch/version"
+                value={defaults.branchVersionReference || "-"}
+              />
+              <InfoItem
+                label="Selected ID"
+                value={defaults.onshapePartId || "-"}
+              />
+            </div>
+          </section>
+
+          {onshapeAuthUrl && (
+            <section className="rounded-lg border border-[#b7cef2] bg-white p-4">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <div className="text-sm font-semibold text-[#0b3d91]">
+                    Onshape access
+                  </div>
+                  <p className="mt-1 text-sm text-[#5c6f8a]">
+                    Connect Onshape so Cheesy Parts can write metadata to the
+                    selected part.
+                  </p>
+                </div>
+                <a
+                  href={onshapeAuthUrl}
+                  onClick={openOnshapeAuth}
+                  target="_blank"
+                  rel="opener"
+                  className="interactive inline-flex h-10 items-center justify-center gap-2 rounded-md bg-[#0b3d91] px-3 text-sm font-semibold text-white hover:bg-[#082f6f]"
+                >
+                  <LinkIcon size={16} aria-hidden="true" />
+                  {onshapeAccessToken ? "Reconnect Onshape" : "Connect Onshape"}
+                </a>
+              </div>
+            </section>
+          )}
+
+          <section className="grid gap-5 lg:grid-cols-[0.8fr_1.2fr]">
+            <div className="rounded-lg border border-[#d8e2f0] bg-white p-4">
+              <div className="mb-4 flex items-center gap-2 text-sm font-semibold text-[#0b3d91]">
+                <Hash size={17} aria-hidden="true" />
+                Numbering
+              </div>
+              <div className="grid gap-3">
+                <label className="field">
+                  <span>Subsystem</span>
+                  <select
+                    value={assignmentSubsystem}
+                    onChange={(event) => {
+                      markAssignmentDirty("subsystem");
+                      setAssignmentSubsystem(event.target.value);
+                    }}
+                    required
+                  >
+                    <option value="">Select subsystem</option>
+                    {NUMBERING_SUBSYSTEMS.map((item) => (
+                      <option key={item.prefix} value={item.label}>
+                        {item.label} ({item.prefix})
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="field">
+                  <span>Prefix</span>
+                  <input
+                    value={selectedNumberingSubsystem?.prefix ?? ""}
+                    readOnly
+                    aria-readonly="true"
+                    className="cursor-default bg-[#f7faff] text-[#5c6f8a]"
+                    placeholder="Choose a subsystem"
+                  />
+                </label>
+              </div>
+            </div>
+
+            <div className="rounded-lg border border-[#d8e2f0] bg-white p-4">
+              <div className="mb-4">
+                <div className="flex items-center gap-2 text-sm font-semibold text-[#0b3d91]">
+                  <Boxes size={17} aria-hidden="true" />
+                  Part metadata
+                </div>
+                <p className="mt-1 text-sm text-[#5c6f8a]">
+                  Cheesy Parts will generate the next number in that subsystem
+                  and write it to Onshape with the description and material.
+                </p>
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <label className="field sm:col-span-2">
+                  <span>Description</span>
+                  <textarea
+                    value={assignmentDescription}
+                    onChange={(event) => {
+                      markAssignmentDirty("description");
+                      setAssignmentDescription(event.target.value);
+                    }}
+                    rows={3}
+                    placeholder="Short part description"
+                  />
+                </label>
+                <label className="field sm:col-span-2">
+                  <span>Material</span>
+                  <input
+                    value={assignmentMaterial}
+                    onChange={(event) => {
+                      markAssignmentDirty("material");
+                      setAssignmentMaterial(event.target.value);
+                    }}
+                    placeholder="Aluminum - 6061"
+                  />
+                </label>
+              </div>
+            </div>
+          </section>
+
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="text-sm text-[#5c6f8a]">
+              {assignmentState.status === "success" ||
+              assignmentState.status === "error"
+                ? assignmentState.message
+                : "This updates Onshape metadata; the BOM will reflect the selected part's metadata wherever it is used."}
+            </div>
+            <button
+              type="submit"
+              disabled={assignmentState.status === "assigning"}
+              className="interactive inline-flex h-11 items-center justify-center gap-2 rounded-md bg-[#0b3d91] px-4 text-sm font-semibold text-white hover:bg-[#082f6f] disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              <Hash size={17} aria-hidden="true" />
+              {assignmentState.status === "assigning"
+                ? "Assigning..."
+                : "Assign part number"}
+            </button>
+          </div>
+        </form>
+      </main>
+    );
+  }
+
   return (
     <main className="app-scroll-page bg-[#f7faff] text-[#141515]">
       <ToastViewport toasts={toasts} onDismiss={dismissToast} />
@@ -565,13 +926,23 @@ export function OnshapeSubmissionPanel({
               Submit selected CAD part
             </h1>
           </div>
-          <Link
-            href="/"
-            className="interactive inline-flex h-10 items-center gap-2 rounded-md border border-[#b8c9e3] bg-white px-3 text-sm font-medium hover:bg-[#edf4ff]"
-          >
-            <ClipboardCheck size={17} aria-hidden="true" />
-            Queue
-          </Link>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => setPanelView("assign")}
+              className="interactive inline-flex h-10 items-center gap-2 rounded-md border border-[#b8c9e3] bg-white px-3 text-sm font-medium hover:bg-[#edf4ff]"
+            >
+              <Hash size={17} aria-hidden="true" />
+              Assign number
+            </button>
+            <Link
+              href="/"
+              className="interactive inline-flex h-10 items-center gap-2 rounded-md border border-[#b8c9e3] bg-white px-3 text-sm font-medium hover:bg-[#edf4ff]"
+            >
+              <ClipboardCheck size={17} aria-hidden="true" />
+              Queue
+            </Link>
+          </div>
         </header>
 
         <section className="rounded-lg border border-[#b7cef2] bg-[#eef5ff] p-4">
@@ -962,6 +1333,20 @@ export function OnshapeSubmissionPanel({
                     type="hidden"
                     name="onshapeDocumentId"
                     value={defaults.onshapeDocumentId}
+                  />
+                )}
+                {defaults.onshapeElementId && (
+                  <input
+                    type="hidden"
+                    name="onshapeElementId"
+                    value={defaults.onshapeElementId}
+                  />
+                )}
+                {defaults.onshapePartId && (
+                  <input
+                    type="hidden"
+                    name="onshapePartId"
+                    value={defaults.onshapePartId}
                   />
                 )}
                 {defaults.onshapeServer && (

@@ -116,6 +116,14 @@ export interface OnshapeUserResult {
   user?: OnshapeUser;
 }
 
+export interface OnshapePartMetadataUpdateResult {
+  partNumber: string;
+  description: string;
+  material: string;
+  materialWritten: boolean;
+  warning?: string;
+}
+
 interface OnshapeMetadataOptions {
   includeBom?: boolean;
   includeDrawing?: boolean;
@@ -549,6 +557,76 @@ export function onshapeContextFromParams(
     wvm: versionId ? "v" : microversionId ? "m" : "w",
     wvmId,
   };
+}
+
+function onshapeContextFromPartUrl(url: string): OnshapeContext | null {
+  const normalizedUrl = normalizeString(url);
+  if (!normalizedUrl) {
+    return null;
+  }
+
+  try {
+    const parsedUrl = new URL(normalizedUrl);
+    const match = parsedUrl.pathname.match(
+      /\/documents\/([^/]+)\/([wvm])\/([^/]+)\/e\/([^/]+)/,
+    );
+    if (!match) {
+      return null;
+    }
+
+    const partId = normalizeString(parsedUrl.searchParams.get("partId"));
+    if (!partId) {
+      return null;
+    }
+
+    return {
+      documentId: match[1],
+      wvm: match[2] as OnshapeContext["wvm"],
+      wvmId: match[3],
+      elementId: match[4],
+      partId,
+      server: normalizeOnshapeServer(parsedUrl.origin),
+    };
+  } catch {
+    return null;
+  }
+}
+
+export function onshapeContextFromSubmissionInput(
+  input: SubmissionInput,
+): OnshapeContext | null {
+  const documentId = normalizeString(input.onshapeDocumentId);
+  const wvm = normalizeString(input.onshapeWvm).toLowerCase();
+  const wvmId = normalizeString(input.onshapeWvmId);
+  const elementId = normalizeString(input.onshapeElementId);
+  const partId = normalizeString(input.onshapePartId);
+
+  if (
+    documentId &&
+    (wvm === "w" || wvm === "v" || wvm === "m") &&
+    wvmId &&
+    elementId &&
+    partId
+  ) {
+    return {
+      documentId,
+      wvm,
+      wvmId,
+      elementId,
+      partId,
+      server: normalizeOnshapeServer(input.onshapeServer),
+    };
+  }
+
+  const context = onshapeContextFromPartUrl(normalizeString(input.onshapePartUrl));
+  return context
+    ? {
+        ...context,
+        server:
+          normalizeOnshapeServer(input.onshapeServer) ??
+          normalizeOnshapeServer(context.server),
+      }
+    : null;
 }
 
 function normalizedComparable(value: string): string {
@@ -1112,6 +1190,96 @@ async function onshapePostJson<T>(
   }
 
   return (await response.json()) as T;
+}
+
+function selectedPartMetadataPath(context: OnshapeContext) {
+  return `/v6/parts/d/${context.documentId}/${context.wvm}/${context.wvmId}/e/${context.elementId}/partid/${encodeURIComponent(context.partId)}/metadata`;
+}
+
+async function postSelectedPartMetadata(
+  context: OnshapeContext,
+  accessToken: string,
+  body: Record<string, unknown>,
+) {
+  return onshapePostJson<OnshapePart>(
+    selectedPartMetadataPath(context),
+    accessToken,
+    body,
+    context.server,
+  );
+}
+
+export async function updateOnshapeSelectedPartMetadata(input: {
+  context: OnshapeContext;
+  accessToken: string;
+  partNumber: string;
+  description: string;
+  material: string;
+}): Promise<OnshapePartMetadataUpdateResult> {
+  if (input.context.wvm !== "w") {
+    throw new Error("Part metadata can only be assigned in an Onshape workspace.");
+  }
+
+  const partNumber = normalizeString(input.partNumber);
+  const description = normalizeString(input.description);
+  const material = normalizeString(input.material);
+
+  if (!partNumber) {
+    throw new Error("Part number is required before writing to Onshape.");
+  }
+
+  const baseBody: Record<string, unknown> = {
+    partNumber,
+  };
+  if (description) {
+    baseBody.description = description;
+  }
+
+  if (!material) {
+    await postSelectedPartMetadata(input.context, input.accessToken, baseBody);
+    return { partNumber, description, material, materialWritten: false };
+  }
+
+  try {
+    await postSelectedPartMetadata(input.context, input.accessToken, {
+      ...baseBody,
+      customProperties: [
+        { name: "Material", value: material },
+        { name: "Raw material", value: material },
+      ],
+    });
+    return { partNumber, description, material, materialWritten: true };
+  } catch (error) {
+    await postSelectedPartMetadata(input.context, input.accessToken, baseBody);
+    const message =
+      error instanceof Error ? error.message : "Onshape rejected material metadata.";
+    return {
+      partNumber,
+      description,
+      material,
+      materialWritten: false,
+      warning: `Part number and description were written, but material could not be written to Onshape metadata: ${message}`,
+    };
+  }
+}
+
+export async function listOnshapeDocumentPartNumbers(
+  context: OnshapeContext,
+  accessToken: string,
+) {
+  const query = new URLSearchParams({
+    includePropertyDefaults: "false",
+    withThumbnails: "false",
+  });
+  const parts = await onshapeFetchJson<OnshapePart[]>(
+    `/v6/parts/d/${context.documentId}/${context.wvm}/${context.wvmId}?${query}`,
+    accessToken,
+    context.server,
+  );
+
+  return parts
+    .map((part) => normalizeString(part.partNumber))
+    .filter(Boolean);
 }
 
 async function onshapeFetchBytes(

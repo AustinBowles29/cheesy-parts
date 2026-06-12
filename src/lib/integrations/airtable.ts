@@ -318,6 +318,10 @@ async function configuredCanonicalQueueTableTargets() {
   return canonicalizeTableTargets(configuredQueueTableTargets());
 }
 
+async function configuredCanonicalAnyTableTargets() {
+  return canonicalizeTableTargets(configuredAnyTableTargets());
+}
+
 function queueViewForTarget(target: AirtableTableTarget) {
   return (
     normalizeString(process.env[`AIRTABLE_QUEUE_VIEW_${envKeySuffix(target.value)}`]) ||
@@ -1461,6 +1465,33 @@ export async function listAirtableRequests() {
     (a, b) =>
       new Date(b.submittedAt).getTime() - new Date(a.submittedAt).getTime(),
   );
+}
+
+export async function listAirtablePartNumbers() {
+  const partNumbers = new Set<string>();
+
+  for (const target of await configuredCanonicalAnyTableTargets()) {
+    let offset: string | undefined;
+
+    do {
+      const url = new URL(tableUrl(target));
+      url.searchParams.set("pageSize", "100");
+      if (offset) {
+        url.searchParams.set("offset", offset);
+      }
+
+      const response = await airtableFetch<AirtableListResponse>(url.toString());
+      for (const record of response.records) {
+        const partNumber = mapAirtableRecord(record, target).partNumber;
+        if (partNumber) {
+          partNumbers.add(partNumber);
+        }
+      }
+      offset = response.offset;
+    } while (offset);
+  }
+
+  return Array.from(partNumbers).sort((a, b) => a.localeCompare(b));
 }
 
 export async function getAirtableRequest(

@@ -120,6 +120,11 @@ function mergeDefaults(
       current.onshapeDocumentId,
       incoming.onshapeDocumentId,
     ),
+    onshapeElementId: mergeValue(
+      current.onshapeElementId,
+      incoming.onshapeElementId,
+    ),
+    onshapePartId: mergeValue(current.onshapePartId, incoming.onshapePartId),
     onshapeServer: mergeValue(current.onshapeServer, incoming.onshapeServer),
     onshapeWvm: mergeValue(current.onshapeWvm, incoming.onshapeWvm),
     onshapeWvmId: mergeValue(current.onshapeWvmId, incoming.onshapeWvmId),
