@@ -1,7 +1,8 @@
+import { createHash } from "node:crypto";
 import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { get, put } from "@vercel/blob";
+import { put } from "@vercel/blob";
 
 function defaultDataDir() {
   if (process.env.LOCAL_DATA_DIR) {
@@ -20,12 +21,13 @@ function defaultDataDir() {
   return path.join(process.cwd(), ".data");
 }
 
-const processedMessageLimit = 1000;
 const processedMessagesPath = path.join(
   defaultDataDir(),
-  "processed-webhook-messages.json",
+  "processed-webhook-messages",
 );
-const blobProcessedMessagesPath = "state/processed-webhook-messages.json";
+const blobProcessedMessagesPath = "state/processed-webhook-messages";
+const inMemoryDedupeTtlMs = 10 * 60 * 1000;
+const inMemoryProcessedMessages = new Map<string, number>();
 
 function blobStorageEnabled() {
   return Boolean(
@@ -38,35 +40,105 @@ function blobAccess(): "private" | "public" {
   return process.env.BLOB_ACCESS === "public" ? "public" : "private";
 }
 
-async function readProcessedMessages(): Promise<string[]> {
-  if (blobStorageEnabled()) {
-    try {
-      const blob = await get(blobProcessedMessagesPath, {
-        access: blobAccess(),
-        useCache: false,
-      });
-      if (!blob || blob.statusCode !== 200 || !blob.stream) {
-        return [];
-      }
+function markerNameForId(id: string) {
+  return `${createHash("sha256").update(id).digest("hex")}.json`;
+}
 
-      const raw = await new Response(blob.stream).text();
-      const parsed = JSON.parse(raw) as unknown;
-      return Array.isArray(parsed)
-        ? parsed.filter((item): item is string => typeof item === "string")
-        : [];
-    } catch {
-      return [];
+function markerBody(id: string) {
+  return JSON.stringify(
+    {
+      id,
+      processedAt: new Date().toISOString(),
+    },
+    null,
+    2,
+  );
+}
+
+function cleanupInMemoryProcessedMessages(now = Date.now()) {
+  for (const [id, timestamp] of inMemoryProcessedMessages) {
+    if (now - timestamp > inMemoryDedupeTtlMs) {
+      inMemoryProcessedMessages.delete(id);
     }
   }
+}
 
+function claimInMemory(id: string) {
+  const now = Date.now();
+  cleanupInMemoryProcessedMessages(now);
+  if (inMemoryProcessedMessages.has(id)) {
+    return false;
+  }
+
+  inMemoryProcessedMessages.set(id, now);
+  return true;
+}
+
+function releaseInMemory(id: string) {
+  inMemoryProcessedMessages.delete(id);
+}
+
+function isAlreadyProcessedError(error: unknown) {
+  if (!error || typeof error !== "object") {
+    return false;
+  }
+
+  const record = error as Record<string, unknown>;
+  const status =
+    Number(record.status) ||
+    Number(record.statusCode) ||
+    Number(record.code);
+  const message =
+    error instanceof Error
+      ? error.message.toLowerCase()
+      : String(record.message ?? "").toLowerCase();
+
+  return (
+    status === 409 ||
+    status === 412 ||
+    message.includes("already exists") ||
+    message.includes("precondition")
+  );
+}
+
+async function markBlobMessageProcessed(id: string) {
+  const pathname = `${blobProcessedMessagesPath}/${markerNameForId(id)}`;
   try {
-    const raw = await fs.readFile(processedMessagesPath, "utf8");
-    const parsed = JSON.parse(raw) as unknown;
-    return Array.isArray(parsed)
-      ? parsed.filter((item): item is string => typeof item === "string")
-      : [];
-  } catch {
-    return [];
+    await put(pathname, markerBody(id), {
+      access: blobAccess(),
+      allowOverwrite: false,
+      contentType: "application/json",
+    });
+    return true;
+  } catch (error) {
+    if (isAlreadyProcessedError(error)) {
+      return false;
+    }
+
+    throw error;
+  }
+}
+
+async function markLocalMessageProcessed(id: string) {
+  const pathname = path.join(processedMessagesPath, markerNameForId(id));
+  try {
+    await fs.mkdir(path.dirname(pathname), { recursive: true });
+    await fs.writeFile(pathname, markerBody(id), {
+      encoding: "utf8",
+      flag: "wx",
+    });
+    return true;
+  } catch (error) {
+    if (
+      error &&
+      typeof error === "object" &&
+      "code" in error &&
+      error.code === "EEXIST"
+    ) {
+      return false;
+    }
+
+    throw error;
   }
 }
 
@@ -75,27 +147,16 @@ export async function markWebhookMessageProcessed(id: string) {
     return true;
   }
 
-  const processedMessages = await readProcessedMessages();
-  if (processedMessages.includes(id)) {
+  if (!claimInMemory(id)) {
     return false;
   }
 
-  const nextMessages = [id, ...processedMessages].slice(0, processedMessageLimit);
-  if (blobStorageEnabled()) {
-    await put(blobProcessedMessagesPath, JSON.stringify(nextMessages, null, 2), {
-      access: blobAccess(),
-      allowOverwrite: true,
-      contentType: "application/json",
-    });
-    return true;
+  try {
+    return blobStorageEnabled()
+      ? markBlobMessageProcessed(id)
+      : markLocalMessageProcessed(id);
+  } catch (error) {
+    releaseInMemory(id);
+    throw error;
   }
-
-  await fs.mkdir(path.dirname(processedMessagesPath), { recursive: true });
-  await fs.writeFile(
-    processedMessagesPath,
-    JSON.stringify(nextMessages, null, 2),
-    "utf8",
-  );
-
-  return true;
 }
