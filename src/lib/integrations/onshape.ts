@@ -1743,6 +1743,90 @@ function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function isDrawingSheetDxfLayer(layerName: string) {
+  const normalizedLayer = normalizeString(layerName)
+    .replace(/[^a-z0-9]/gi, "")
+    .toLowerCase();
+
+  return (
+    normalizedLayer === "titleblock" ||
+    normalizedLayer === "borderframe" ||
+    normalizedLayer === "borderzones" ||
+    normalizedLayer.includes("titleblock") ||
+    normalizedLayer.includes("borderframe") ||
+    normalizedLayer.includes("borderzone")
+  );
+}
+
+function stripDrawingSheetLayersFromDxf(bytes: Buffer) {
+  const text = bytes.toString("utf8");
+
+  if (!text.includes("SECTION") || !text.includes("ENTITIES")) {
+    return bytes;
+  }
+
+  const lineEnding = text.includes("\r\n") ? "\r\n" : "\n";
+  const lines = text.split(/\r?\n/);
+  const groups: Array<{ code: string; value: string }> = [];
+
+  for (let index = 0; index < lines.length - 1; index += 2) {
+    groups.push({ code: lines[index], value: lines[index + 1] });
+  }
+
+  if (groups.length === 0) {
+    return bytes;
+  }
+
+  const outputGroups: typeof groups = [];
+  let sectionName = "";
+
+  for (let index = 0; index < groups.length; index += 1) {
+    const group = groups[index];
+    const code = group.code.trim();
+    const value = group.value.trim().toUpperCase();
+
+    if (code === "0" && value === "SECTION") {
+      const sectionType = groups[index + 1];
+      sectionName =
+        sectionType?.code.trim() === "2" ? sectionType.value.trim().toUpperCase() : "";
+      outputGroups.push(group);
+      continue;
+    }
+
+    if (sectionName === "ENTITIES" && code === "0" && value !== "ENDSEC") {
+      let endIndex = index + 1;
+      while (
+        endIndex < groups.length &&
+        !(groups[endIndex].code.trim() === "0")
+      ) {
+        endIndex += 1;
+      }
+
+      const entityGroups = groups.slice(index, endIndex);
+      const layer = entityGroups.find((entityGroup) => entityGroup.code.trim() === "8");
+
+      if (!layer || !isDrawingSheetDxfLayer(layer.value)) {
+        outputGroups.push(...entityGroups);
+      }
+
+      index = endIndex - 1;
+      continue;
+    }
+
+    outputGroups.push(group);
+
+    if (code === "0" && value === "ENDSEC") {
+      sectionName = "";
+    }
+  }
+
+  const strippedText = outputGroups
+    .flatMap((group) => [group.code, group.value])
+    .join(lineEnding);
+
+  return Buffer.from(`${strippedText}${lineEnding}`, "utf8");
+}
+
 async function waitForTranslation(
   translationId: string,
   accessToken: string,
@@ -1947,11 +2031,13 @@ async function exportDrawingDxf(input: {
   drawingElementId: string;
   server?: string;
 }) {
-  return exportDrawingFile({
+  const bytes = await exportDrawingFile({
     ...input,
     formatName: "DXF",
     label: "Onshape drawing DXF export",
   });
+
+  return stripDrawingSheetLayersFromDxf(bytes);
 }
 
 export async function createOnshapeDrawingPdfAttachment(
