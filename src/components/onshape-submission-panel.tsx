@@ -47,6 +47,8 @@ type AssignmentState =
   | { status: "success"; message: string }
   | { status: "error"; message: string };
 
+type PartNumberUsage = "clone" | "comp";
+
 const requiredFields = [
   { name: "partName", label: "Part name" },
   { name: "partNumber", label: "Part number" },
@@ -299,6 +301,7 @@ export function OnshapeSubmissionPanel({
   const [assignmentMaterial, setAssignmentMaterial] = useState(
     defaults.material ?? "",
   );
+  const [assignmentUsage, setAssignmentUsage] = useState<PartNumberUsage>("clone");
   const [assignmentState, setAssignmentState] = useState<AssignmentState>({
     status: "idle",
   });
@@ -669,6 +672,7 @@ export function OnshapeSubmissionPanel({
           description: assignmentDescription,
           notes: assignmentDescription,
           material: assignmentMaterial,
+          usage: assignmentUsage,
           onshapePartUrl,
         }),
       });
@@ -815,6 +819,20 @@ export function OnshapeSubmissionPanel({
                 Numbering
               </div>
               <div className="grid gap-3">
+                <label className="field">
+                  <span>Intended use</span>
+                  <select
+                    value={assignmentUsage}
+                    onChange={(event) => {
+                      setAssignmentUsage(
+                        event.target.value === "comp" ? "comp" : "clone",
+                      );
+                    }}
+                  >
+                    <option value="clone">Clone</option>
+                    <option value="comp">Comp</option>
+                  </select>
+                </label>
                 <label className="field">
                   <span>Subsystem</span>
                   <select

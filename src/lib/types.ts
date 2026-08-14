@@ -14,6 +14,8 @@ export type MachineType = (typeof MACHINE_TYPES)[number] | (string & {});
 export type AttachmentKind = (typeof ATTACHMENT_KINDS)[number];
 export type Priority = (typeof PRIORITIES)[number];
 
+export type PartNumberUsage = "clone" | "comp";
+
 export type AuditAction =
   | "submitted"
   | "status_changed"

@@ -6,7 +6,7 @@ import {
 } from "@/lib/integrations/onshape";
 import { normalizeString } from "@/lib/manufacturing";
 import { nextPartNumberForSubsystem } from "@/lib/part-numbering";
-import type { SubmissionInput } from "@/lib/types";
+import type { PartNumberUsage, SubmissionInput } from "@/lib/types";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -19,8 +19,12 @@ function bearerToken(req: Request) {
 
 export async function POST(req: Request) {
   try {
-    const body = (await req.json()) as SubmissionInput;
+    const body = (await req.json()) as SubmissionInput & {
+      usage?: string;
+    };
     const accessToken = bearerToken(req);
+    const usage: PartNumberUsage =
+      normalizeString(body.usage).toLowerCase() === "comp" ? "comp" : "clone";
     const subsystem = normalizeString(body.subsystem);
     const description = normalizeString(body.description ?? body.notes);
     const material = normalizeString(body.material);
@@ -42,7 +46,7 @@ export async function POST(req: Request) {
 
     const warnings: string[] = [];
     const [airtablePartNumbers, onshapePartNumbers] = await Promise.all([
-      listAirtablePartNumbers(),
+      listAirtablePartNumbers(usage),
       listOnshapeDocumentPartNumbers(context, accessToken).catch((error) => {
         warnings.push(
           error instanceof Error

@@ -13,6 +13,7 @@ import type {
   AttachmentRef,
   AuditEntry,
   ManufacturingRequest,
+  PartNumberUsage,
   SubmissionFieldOptions,
 } from "../types";
 
@@ -466,13 +467,32 @@ function submissionTablesWithCloneBot(schema: AirtableBaseSchemaResponse) {
   return [cloneBot, ...rest];
 }
 
-// Resolve the Clone Bot (robot) table target from AIRTABLE_TABLE_ROBOT for
-// part-number assignment, which reads only that table.
+// Resolve the Clone Bot (robot) table target from AIRTABLE_TABLE_ROBOT.
 function cloneBotTableTarget() {
   return tableTargetFromValue(process.env[categoryEnvKey("Robot")]);
 }
 
-async function partNumberScanTargets() {
+function targetKey(target: AirtableTableTarget) {
+  return target.airtableTableId ?? target.value;
+}
+
+// Part-number assignment scans different tables depending on where the part
+// is intended to be used:
+//   - "clone": only the Clone Bot table.
+//   - "comp": every configured queue table except the Clone Bot table.
+async function partNumberScanTargets(usage: PartNumberUsage = "clone") {
+  const cloneTargets = await canonicalizeCloneBotTargets();
+
+  if (usage === "comp") {
+    const cloneKeys = new Set(cloneTargets.map(targetKey));
+    const queueTargets = await configuredCanonicalQueueTableTargets();
+    return queueTargets.filter((target) => !cloneKeys.has(targetKey(target)));
+  }
+
+  return cloneTargets;
+}
+
+async function canonicalizeCloneBotTargets() {
   const target = cloneBotTableTarget();
   if (!target) {
     return [];
@@ -1585,10 +1605,12 @@ export async function listAirtableRequests() {
   );
 }
 
-export async function listAirtablePartNumbers() {
+export async function listAirtablePartNumbers(
+  usage: PartNumberUsage = "clone",
+) {
   const partNumbers = new Set<string>();
 
-  for (const target of await partNumberScanTargets()) {
+  for (const target of await partNumberScanTargets(usage)) {
     let offset: string | undefined;
 
     do {
