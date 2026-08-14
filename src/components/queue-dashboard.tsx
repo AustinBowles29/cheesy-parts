@@ -27,6 +27,7 @@ import type {
   ManufacturingRequest,
   ManufacturingStatus,
   OnshapeUser,
+  QueueScope,
   SlackUser,
 } from "@/lib/types";
 import { ToastViewport, useToasts } from "./toast";
@@ -213,6 +214,7 @@ export function QueueDashboard({
     initialSyncedAt,
   );
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [queueScope, setQueueScope] = useState<QueueScope>("clone");
   const [filters, setFilters] = useState<Filters>(emptyFilters);
   const [submitPartHref, setSubmitPartHref] = useState("/onshape");
   const refreshInFlightRef = useRef(false);
@@ -380,7 +382,10 @@ export function QueueDashboard({
       setIsRefreshing(true);
 
       try {
-        const response = await fetch("/api/requests", { cache: "no-store" });
+        const response = await fetch(
+          `/api/requests?usage=${queueScope}`,
+          { cache: "no-store" },
+        );
         const body = await response.json();
         if (!response.ok) {
           if (!silent) {
@@ -417,7 +422,7 @@ export function QueueDashboard({
         setIsRefreshing(false);
       }
     },
-    [addToast],
+    [addToast, queueScope],
   );
 
   useEffect(() => {
@@ -445,6 +450,16 @@ export function QueueDashboard({
       document.removeEventListener("visibilitychange", refreshIfVisible);
     };
   }, [refreshQueue]);
+
+  const scopeInitializedRef = useRef(false);
+  useEffect(() => {
+    if (!scopeInitializedRef.current) {
+      scopeInitializedRef.current = true;
+      return;
+    }
+
+    void refreshQueue();
+  }, [queueScope, refreshQueue]);
 
   async function updateStatus(id: string, status: ManufacturingStatus) {
     mutationCountRef.current += 1;
@@ -645,6 +660,21 @@ export function QueueDashboard({
             <h1 className="mt-1 text-3xl font-semibold">Fabrication queue</h1>
           </div>
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            <label className="flex h-10 items-center gap-2 whitespace-nowrap text-sm font-semibold text-[#5c6f8a]">
+              <span>Show</span>
+              <select
+                value={queueScope}
+                onChange={(event) =>
+                  setQueueScope(
+                    event.target.value === "comp" ? "comp" : "clone",
+                  )
+                }
+                className="h-10 min-w-32 rounded-md border border-[#b8c9e3] bg-white px-3 text-sm font-medium text-[#141515] outline-none focus:border-[#0b3d91] focus:shadow-[0_0_0_2px_rgb(11_61_145_/_18%)]"
+              >
+                <option value="clone">Clone</option>
+                <option value="comp">Comp</option>
+              </select>
+            </label>
             <label className="flex h-10 items-center gap-2 whitespace-nowrap text-sm font-semibold text-[#5c6f8a]">
               <span>Acting as</span>
               <select

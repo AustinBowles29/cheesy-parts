@@ -14,6 +14,7 @@ import type {
   AuditEntry,
   ManufacturingRequest,
   PartNumberUsage,
+  QueueScope,
   SubmissionFieldOptions,
 } from "../types";
 
@@ -1573,10 +1574,14 @@ export async function statusForAirtableTarget(
   return statusForTableChoice(status, table);
 }
 
-export async function listAirtableRequests() {
+export async function listAirtableRequests(scope: QueueScope = "clone") {
   const requests: ManufacturingRequest[] = [];
+  const targets =
+    scope === "comp"
+      ? await configuredCanonicalQueueTableTargets()
+      : await canonicalizeCloneBotTargets();
 
-  for (const target of await configuredCanonicalQueueTableTargets()) {
+  for (const target of targets) {
     const records: AirtableRecord[] = [];
     let offset: string | undefined;
 

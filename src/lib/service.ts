@@ -39,6 +39,7 @@ import type {
   AuditEntry,
   ManufacturingRequest,
   ManufacturingStatus,
+  QueueScope,
   ServiceResult,
   SubmissionInput,
 } from "./types";
@@ -185,9 +186,9 @@ async function runNotification<T>(
   }
 }
 
-export async function listManufacturingRequests() {
+export async function listManufacturingRequests(scope: QueueScope = "clone") {
   if (isAirtableConfigured()) {
-    return listAirtableRequests();
+    return listAirtableRequests(scope);
   }
 
   return readLocalRequests();

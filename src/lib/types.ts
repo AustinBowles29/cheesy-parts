@@ -15,6 +15,7 @@ export type AttachmentKind = (typeof ATTACHMENT_KINDS)[number];
 export type Priority = (typeof PRIORITIES)[number];
 
 export type PartNumberUsage = "clone" | "comp";
+export type QueueScope = "clone" | "comp";
 
 export type AuditAction =
   | "submitted"
