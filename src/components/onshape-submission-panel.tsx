@@ -1199,7 +1199,7 @@ export function OnshapeSubmissionPanel({
                         key={airtableTableOptionValue(table)}
                         value={airtableTableOptionValue(table)}
                       >
-                        {table.name}
+                        {table.label ?? table.name}
                       </option>
                     ))}
                   </select>

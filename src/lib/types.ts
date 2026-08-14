@@ -148,6 +148,7 @@ export interface SubmissionFieldOptions {
   airtableTables?: Array<{
     id: string;
     name: string;
+    label?: string;
     statuses?: string[];
   }>;
   warning?: string;

@@ -436,6 +436,48 @@ function configuredTables(schema: AirtableBaseSchemaResponse) {
   );
 }
 
+const CLONE_BOT_TABLE_LABEL = "Clone Bot";
+
+// The robot table is configured on Vercel as AIRTABLE_TABLE_ROBOT (the same
+// key used for Robot category routing). Surface it in the submit dropdown as
+// the "Clone Bot" option and make it the default target.
+function cloneBotTableSchema(schema: AirtableBaseSchemaResponse) {
+  const robotValue = normalizeString(process.env[categoryEnvKey("Robot")]);
+  if (!robotValue) {
+    return undefined;
+  }
+
+  return schema.tables.find(
+    (table) => table.id === robotValue || table.name === robotValue,
+  );
+}
+
+// Ensure the Clone Bot table is present and listed first so it is the default
+// submit target, without dropping any other configured submission tables.
+function submissionTablesWithCloneBot(schema: AirtableBaseSchemaResponse) {
+  const tables = configuredTables(schema);
+  const cloneBot = cloneBotTableSchema(schema);
+
+  if (!cloneBot) {
+    return tables;
+  }
+
+  const rest = tables.filter((table) => table.id !== cloneBot.id);
+  return [cloneBot, ...rest];
+}
+
+function airtableTableOption(
+  table: AirtableTableSchema,
+  cloneBotId?: string,
+) {
+  return {
+    id: table.id,
+    name: table.name,
+    label: table.id === cloneBotId ? CLONE_BOT_TABLE_LABEL : undefined,
+    statuses: fieldChoices(fieldByName(table, ["Status"])),
+  };
+}
+
 function fieldByName(
   table: AirtableTableSchema | undefined,
   names: string[],
@@ -496,7 +538,8 @@ export async function getAirtableSubmissionFieldOptions(): Promise<SubmissionFie
     const schema = await airtableFetch<AirtableBaseSchemaResponse>(
       `${apiBase}/meta/bases/${base}/tables`,
     );
-    const tables = configuredTables(schema);
+    const tables = submissionTablesWithCloneBot(schema);
+    const cloneBotId = cloneBotTableSchema(schema)?.id;
 
     if (tables.length === 0) {
       return {
@@ -532,11 +575,9 @@ export async function getAirtableSubmissionFieldOptions(): Promise<SubmissionFie
           fieldChoices(fieldByName(table, ["Post-process", "Finish"])),
         ),
       ),
-      airtableTables: tables.map((table) => ({
-        id: table.id,
-        name: table.name,
-        statuses: fieldChoices(fieldByName(table, ["Status"])),
-      })),
+      airtableTables: tables.map((table) =>
+        airtableTableOption(table, cloneBotId),
+      ),
     };
   } catch (error) {
     return {
