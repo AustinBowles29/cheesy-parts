@@ -466,6 +466,21 @@ function submissionTablesWithCloneBot(schema: AirtableBaseSchemaResponse) {
   return [cloneBot, ...rest];
 }
 
+// Resolve the Clone Bot (robot) table target from AIRTABLE_TABLE_ROBOT for
+// part-number assignment, which reads only that table.
+function cloneBotTableTarget() {
+  return tableTargetFromValue(process.env[categoryEnvKey("Robot")]);
+}
+
+async function partNumberScanTargets() {
+  const target = cloneBotTableTarget();
+  if (!target) {
+    return [];
+  }
+
+  return canonicalizeTableTargets([target]);
+}
+
 function airtableTableOption(
   table: AirtableTableSchema,
   cloneBotId?: string,
@@ -1573,7 +1588,7 @@ export async function listAirtableRequests() {
 export async function listAirtablePartNumbers() {
   const partNumbers = new Set<string>();
 
-  for (const target of await configuredCanonicalQueueTableTargets()) {
+  for (const target of await partNumberScanTargets()) {
     let offset: string | undefined;
 
     do {
