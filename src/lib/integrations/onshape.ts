@@ -1277,7 +1277,25 @@ export async function listOnshapeDocumentPartNumbers(
     context.server,
   );
 
+  // Exclude the part being assigned so its own current number is not counted as
+  // "taken". This lets a re-assign reuse the lowest free number in a subsystem
+  // (e.g. a lone -601 stays -601) instead of always advancing to the next one.
+  const excludePartId = normalizeString(context.partId);
+  const excludeElementId = normalizeString(context.elementId);
+
   return parts
+    .filter((part) => {
+      if (!excludePartId || normalizeString(part.partId) !== excludePartId) {
+        return true;
+      }
+
+      const partElementId = normalizeString(part.elementId);
+      if (excludeElementId && partElementId) {
+        return partElementId !== excludeElementId;
+      }
+
+      return false;
+    })
     .map((part) => normalizeString(part.partNumber))
     .filter(Boolean);
 }

@@ -178,6 +178,17 @@ function machineUsergroupMention(machineType: ManufacturingRequest["machineType"
     });
   }
 
+  if (machine.includes("laser")) {
+    return usergroupMention({
+      idKeys: ["SLACK_LASER_USERGROUP_ID", "SLACK_MACHINE_LASER_USERGROUP_ID"],
+      handleKeys: [
+        "SLACK_LASER_USERGROUP_HANDLE",
+        "SLACK_MACHINE_LASER_USERGROUP_HANDLE",
+      ],
+      fallbackHandle: "laser",
+    });
+  }
+
   if (machine.includes("mill")) {
     return usergroupMention({
       idKeys: ["SLACK_MILL_USERGROUP_ID", "SLACK_MACHINE_MILL_USERGROUP_ID"],
