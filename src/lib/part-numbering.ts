@@ -78,7 +78,7 @@ export function numberingSubsystemFromName(value: unknown) {
   );
 }
 
-function partNumberCore(value: unknown) {
+export function partNumberCore(value: unknown) {
   const partNumber = normalizeString(value);
   if (!partNumber) {
     return "";

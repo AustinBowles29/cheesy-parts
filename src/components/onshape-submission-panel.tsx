@@ -253,6 +253,7 @@ export function OnshapeSubmissionPanel({
     () => initialAirtableTableValue(defaults, airtableTables),
   );
   const formRef = useRef<HTMLFormElement>(null);
+  const acknowledgedPartNumberRef = useRef<string | null>(null);
   const [partName, setPartName] = useState(defaults.partName ?? "");
   const [partNumber, setPartNumber] = useState(defaults.partNumber ?? "");
   const [notes, setNotes] = useState(
@@ -584,11 +585,84 @@ export function OnshapeSubmissionPanel({
     return false;
   }
 
+  async function ensurePartNumberAcknowledged(
+    partNumberValue: string,
+    usage: PartNumberUsage,
+  ) {
+    if (!partNumberValue) {
+      return true;
+    }
+
+    const acknowledgeKey = `${usage}::${partNumberValue}`;
+    if (acknowledgedPartNumberRef.current === acknowledgeKey) {
+      return true;
+    }
+
+    let check: { valid?: boolean; duplicate?: boolean } | undefined;
+    try {
+      const response = await fetch(
+        `/api/part-number/check?partNumber=${encodeURIComponent(
+          partNumberValue,
+        )}&usage=${usage}`,
+        { cache: "no-store" },
+      );
+      if (!response.ok) {
+        return true;
+      }
+      check = (await response.json())?.data;
+    } catch {
+      // Fail open: never block a submission because the check could not run.
+      return true;
+    }
+
+    if (!check) {
+      return true;
+    }
+
+    const issues: string[] = [];
+    if (check.duplicate) {
+      issues.push("already exists in the tracker");
+    }
+    if (check.valid === false) {
+      issues.push("does not look like a valid part number");
+    }
+
+    if (issues.length === 0) {
+      return true;
+    }
+
+    // Remember this exact value + scope so a second Submit click proceeds anyway.
+    acknowledgedPartNumberRef.current = acknowledgeKey;
+    setInvalidFields((current) => new Set(current).add("partNumber"));
+    addToast({
+      variant: "warning",
+      title: check.duplicate ? "Duplicate part number" : "Check part number",
+      message: `${partNumberValue} ${issues.join(
+        " and ",
+      )}. Click Submit again to continue anyway.`,
+    });
+    return false;
+  }
+
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
     const formData = new FormData(event.currentTarget);
     if (!validateForm(formData)) {
+      return;
+    }
+
+    const partNumberValue = String(formData.get("partNumber") ?? "").trim();
+    const submittedTableValue = String(formData.get("airtableTableId") ?? "");
+    const submittedTable = airtableTables.find(
+      (table) => airtableTableOptionValue(table) === submittedTableValue,
+    );
+    // Only the Clone Bot table carries a label; any other target uses the comp
+    // scope (all known tables except the Clone Bot table).
+    const partNumberUsage: PartNumberUsage = submittedTable?.label
+      ? "clone"
+      : "comp";
+    if (!(await ensurePartNumberAcknowledged(partNumberValue, partNumberUsage))) {
       return;
     }
 

@@ -1610,12 +1610,10 @@ export async function listAirtableRequests(scope: QueueScope = "clone") {
   );
 }
 
-export async function listAirtablePartNumbers(
-  usage: PartNumberUsage = "clone",
-) {
+async function collectPartNumbers(targets: AirtableTableTarget[]) {
   const partNumbers = new Set<string>();
 
-  for (const target of await partNumberScanTargets(usage)) {
+  for (const target of targets) {
     let offset: string | undefined;
 
     do {
@@ -1641,6 +1639,12 @@ export async function listAirtablePartNumbers(
   }
 
   return Array.from(partNumbers).sort((a, b) => a.localeCompare(b));
+}
+
+export async function listAirtablePartNumbers(
+  usage: PartNumberUsage = "clone",
+) {
+  return collectPartNumbers(await partNumberScanTargets(usage));
 }
 
 export async function getAirtableRequest(
