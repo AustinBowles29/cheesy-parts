@@ -265,15 +265,53 @@ function configuredAnyTableTargets() {
   ]);
 }
 
+// The base schema is needed by nearly every Airtable operation (canonicalizing
+// table targets, resolving status choices, building dropdowns) but changes
+// rarely. Cache it per instance and coalesce concurrent requests so a single
+// user action does not fetch it several times.
+const baseSchemaCacheTtlMs = 5 * 60 * 1000;
+let baseSchemaCache: {
+  base: string;
+  schema: AirtableBaseSchemaResponse;
+  expiresAt: number;
+} | null = null;
+let baseSchemaInFlight: Promise<AirtableBaseSchemaResponse> | null = null;
+
 async function fetchBaseSchema() {
   const base = baseId();
   if (!base) {
     return null;
   }
 
-  return airtableFetch<AirtableBaseSchemaResponse>(
-    `${apiBase}/meta/bases/${base}/tables`,
-  );
+  if (
+    baseSchemaCache &&
+    baseSchemaCache.base === base &&
+    baseSchemaCache.expiresAt > Date.now()
+  ) {
+    return baseSchemaCache.schema;
+  }
+
+  if (baseSchemaInFlight) {
+    return baseSchemaInFlight;
+  }
+
+  baseSchemaInFlight = (async () => {
+    try {
+      const schema = await airtableFetch<AirtableBaseSchemaResponse>(
+        `${apiBase}/meta/bases/${base}/tables`,
+      );
+      baseSchemaCache = {
+        base,
+        schema,
+        expiresAt: Date.now() + baseSchemaCacheTtlMs,
+      };
+      return schema;
+    } finally {
+      baseSchemaInFlight = null;
+    }
+  })();
+
+  return baseSchemaInFlight;
 }
 
 async function canonicalizeTableTargets(targets: AirtableTableTarget[]) {
@@ -570,10 +608,11 @@ export async function getAirtableSubmissionFieldOptions(): Promise<SubmissionFie
   }
 
   try {
-    const base = baseId();
-    const schema = await airtableFetch<AirtableBaseSchemaResponse>(
-      `${apiBase}/meta/bases/${base}/tables`,
-    );
+    // Share the cached base schema instead of issuing a second meta request.
+    const schema = await fetchBaseSchema();
+    if (!schema) {
+      throw new Error("Airtable base is not configured.");
+    }
     const tables = submissionTablesWithCloneBot(schema);
     const cloneBotId = cloneBotTableSchema(schema)?.id;
 

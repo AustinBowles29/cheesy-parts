@@ -825,18 +825,25 @@ function onshapeCommentSummary(input: {
     return "";
   }
 
+  // The summary is the only place mentioned users are pinged, so every branch
+  // that can carry mentions must keep them.
+  const mentioned = input.mentionText ? `, mentioning ${input.mentionText}` : "";
+
+  // An edit threaded under its own original message is not a reply and must not
+  // read "X replied to X"; isReply is passed explicitly rather than inferred
+  // from threadTs for that reason.
+  if (input.event === "onshape.comment.update") {
+    return `${input.author} updated a comment in Onshape${mentioned}`;
+  }
+
   if (input.isReply) {
     return input.replyTo
-      ? `${input.author} replied to ${input.replyTo}`
-      : `${input.author} replied in Onshape`;
+      ? `${input.author} replied to ${input.replyTo}${mentioned}`
+      : `${input.author} replied in Onshape${mentioned}`;
   }
 
   if (input.mentionText) {
     return `${input.author} mentioned ${input.mentionText}`;
-  }
-
-  if (input.event === "onshape.comment.update") {
-    return `${input.author} updated a comment in Onshape`;
   }
 
   return `${input.author} commented in Onshape`;
@@ -844,6 +851,23 @@ function onshapeCommentSummary(input: {
 
 function slackMention(user: SlackUser | undefined) {
   return user?.slackUserId ? `<@${user.slackUserId}>` : "";
+}
+
+// Make free text safe to interpolate into Slack mrkdwn: escape the control
+// characters Slack requires and neutralize formatting markers so a name such
+// as "Arm v2 * Rev B" cannot toggle bold/italic mid-line.
+function escapeSlackMrkdwn(value: string) {
+  // U+200B on either side of a marker stops Slack pairing it with another.
+  const zeroWidthSpace = String.fromCharCode(0x200b);
+  return normalizeString(value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(
+      /[*_~`]/g,
+      (char) => `${zeroWidthSpace}${char}${zeroWidthSpace}`,
+    )
+    .replace(/\r?\n/g, " ");
 }
 
 export async function notifyOnshapeComment(input: OnshapeCommentNotification) {
@@ -854,6 +878,9 @@ export async function notifyOnshapeCommentWithOptions(
   input: OnshapeCommentNotification,
   options: {
     threadTs?: string;
+    // Whether this comment has a parent comment. Not derivable from threadTs,
+    // which is also set when an edit is threaded under its own message.
+    isReply?: boolean;
     replyToAuthorName?: string;
     replyToAuthorEmail?: string;
   } = {},
@@ -900,10 +927,18 @@ export async function notifyOnshapeCommentWithOptions(
     author,
     mentionText,
     replyTo,
-    isReply: Boolean(options.threadTs),
+    // Callers that know the thread structure pass isReply explicitly; the
+    // threadTs fallback keeps the plain notifyOnshapeComment wrapper working.
+    isReply: options.isReply ?? Boolean(options.threadTs),
   });
   const openLink =
     optionalSlackLink(input.documentUrl, "Open in Onshape") || "Open in Onshape";
+  // Name the document so readers can tell which of several CAD docs this is
+  // from. Only the label is bold so a marker inside the name cannot break it.
+  const documentName = escapeSlackMrkdwn(input.documentName ?? "");
+  const documentLine = documentName
+    ? `\n:page_facing_up: *Document:* ${documentName}`
+    : "";
   const blocks =
     input.event === "onshape.comment.delete"
       ? [
@@ -920,7 +955,7 @@ export async function notifyOnshapeCommentWithOptions(
             type: "section",
             text: {
               type: "mrkdwn",
-              text: `*${title}*\n${summary}`,
+              text: `*${title}*\n${summary}${documentLine}`,
             },
           },
           {

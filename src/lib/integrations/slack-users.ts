@@ -253,7 +253,18 @@ function configuredOnshapeSlackUserMap() {
   return map;
 }
 
-export async function getWorkspaceSlackUsers() {
+// users.list paginates the whole workspace, and a single comment notification
+// resolves identities several times, so cache the directory per instance and
+// coalesce concurrent calls into one fetch. When users.list fails, the group
+// fallback is far more expensive (usergroups.list + users.info per member), so
+// its result is held briefly too — otherwise one failure would run that fan-out
+// once per identity lookup.
+const workspaceUsersCacheTtlMs = 10 * 60 * 1000;
+const workspaceUsersFallbackTtlMs = 60 * 1000;
+let workspaceUsersCache: { users: SlackUser[]; expiresAt: number } | null = null;
+let workspaceUsersInFlight: Promise<SlackUser[]> | null = null;
+
+async function loadWorkspaceSlackUsers() {
   try {
     const users: SlackUser[] = [];
     let cursor = "";
@@ -272,13 +283,40 @@ export async function getWorkspaceSlackUsers() {
     } while (cursor);
 
     if (users.length > 0) {
-      return users.sort((a, b) => a.displayName.localeCompare(b.displayName));
+      const sorted = users.sort((a, b) =>
+        a.displayName.localeCompare(b.displayName),
+      );
+      workspaceUsersCache = {
+        users: sorted,
+        expiresAt: Date.now() + workspaceUsersCacheTtlMs,
+      };
+      return sorted;
     }
   } catch {
     // Fall back to configured design/manufacturing groups below.
   }
 
-  return (await getManufacturingSlackUsers()).users;
+  const fallback = (await getManufacturingSlackUsers()).users;
+  workspaceUsersCache = {
+    users: fallback,
+    expiresAt: Date.now() + workspaceUsersFallbackTtlMs,
+  };
+  return fallback;
+}
+
+export async function getWorkspaceSlackUsers(): Promise<SlackUser[]> {
+  if (workspaceUsersCache && workspaceUsersCache.expiresAt > Date.now()) {
+    // Hand out a copy so no caller can mutate the shared cached array.
+    return [...workspaceUsersCache.users];
+  }
+
+  if (!workspaceUsersInFlight) {
+    workspaceUsersInFlight = loadWorkspaceSlackUsers().finally(() => {
+      workspaceUsersInFlight = null;
+    });
+  }
+
+  return [...(await workspaceUsersInFlight)];
 }
 
 export async function findSlackUsersByIdentity(candidates: unknown[]) {
@@ -294,6 +332,12 @@ export async function findSlackUsersByIdentity(candidates: unknown[]) {
     if (mappedUserId) {
       matchedIds.add(mappedUserId);
     }
+  }
+
+  // Nothing to match (e.g. a top-level comment with no parent author): do not
+  // spend a directory fetch to return an empty list.
+  if (candidateSet.size === 0) {
+    return [];
   }
 
   const users = await getWorkspaceSlackUsers();

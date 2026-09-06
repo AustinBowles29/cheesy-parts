@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { put } from "@vercel/blob";
+import { head, put } from "@vercel/blob";
 
 function defaultDataDir() {
   if (process.env.LOCAL_DATA_DIR) {
@@ -42,6 +42,14 @@ function blobAccess(): "private" | "public" {
 
 function markerNameForId(id: string) {
   return `${createHash("sha256").update(id).digest("hex")}.json`;
+}
+
+function blobMarkerPath(id: string) {
+  return `${blobProcessedMessagesPath}/${markerNameForId(id)}`;
+}
+
+function localMarkerPath(id: string) {
+  return path.join(processedMessagesPath, markerNameForId(id));
 }
 
 function markerBody(id: string) {
@@ -102,9 +110,8 @@ function isAlreadyProcessedError(error: unknown) {
 }
 
 async function markBlobMessageProcessed(id: string) {
-  const pathname = `${blobProcessedMessagesPath}/${markerNameForId(id)}`;
   try {
-    await put(pathname, markerBody(id), {
+    await put(blobMarkerPath(id), markerBody(id), {
       access: blobAccess(),
       allowOverwrite: false,
       contentType: "application/json",
@@ -120,7 +127,7 @@ async function markBlobMessageProcessed(id: string) {
 }
 
 async function markLocalMessageProcessed(id: string) {
-  const pathname = path.join(processedMessagesPath, markerNameForId(id));
+  const pathname = localMarkerPath(id);
   try {
     await fs.mkdir(path.dirname(pathname), { recursive: true });
     await fs.writeFile(pathname, markerBody(id), {
@@ -142,6 +149,24 @@ async function markLocalMessageProcessed(id: string) {
   }
 }
 
+async function blobMessageExists(id: string) {
+  try {
+    await head(blobMarkerPath(id));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function localMessageExists(id: string) {
+  try {
+    await fs.access(localMarkerPath(id));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export async function markWebhookMessageProcessed(id: string) {
   if (!id) {
     return true;
@@ -159,4 +184,19 @@ export async function markWebhookMessageProcessed(id: string) {
     releaseInMemory(id);
     throw error;
   }
+}
+
+// Read-only check that never claims the id. A lookup failure reads as "not
+// processed" so a storage hiccup can only cause a retry, never a dropped event.
+export async function hasWebhookMessageBeenProcessed(id: string) {
+  if (!id) {
+    return false;
+  }
+
+  cleanupInMemoryProcessedMessages();
+  if (inMemoryProcessedMessages.has(id)) {
+    return true;
+  }
+
+  return blobStorageEnabled() ? blobMessageExists(id) : localMessageExists(id);
 }

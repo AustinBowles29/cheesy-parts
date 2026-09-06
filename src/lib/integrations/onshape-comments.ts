@@ -17,6 +17,7 @@ export interface OnshapeCommentNotification {
   authorName: string;
   authorEmail: string;
   documentUrl: string;
+  documentName?: string;
   mentionCandidates: string[];
 }
 
@@ -361,6 +362,41 @@ function commentDetailUrls(notification: OnshapeCommentNotification) {
   ];
 }
 
+interface OnshapeCommentApiResponse {
+  ok: boolean;
+  status: number;
+  // Parsed JSON on success, response text on failure.
+  body: unknown;
+}
+
+// Authenticated GET against the Onshape REST API using the server-side comment
+// credentials. Returns null when no credentials are configured. Shared by the
+// comment-detail and document-name lookups so the auth recipe lives once.
+async function fetchOnshapeCommentApi(
+  url: string,
+): Promise<OnshapeCommentApiResponse | null> {
+  const method = "GET";
+  const contentType = "application/json;charset=UTF-8; qs=0.09";
+  const authHeaders = onshapeCommentAuthHeaders({ method, url, contentType });
+  if (!authHeaders) {
+    return null;
+  }
+
+  const response = await fetch(url, {
+    headers: {
+      Accept: "application/json;charset=UTF-8; qs=0.09",
+      "Content-Type": contentType,
+      ...authHeaders,
+    },
+    cache: "no-store",
+  });
+  const body: unknown = response.ok
+    ? await response.json()
+    : await response.text();
+
+  return { ok: response.ok, status: response.status, body };
+}
+
 async function fetchOnshapeCommentDetails(
   notification: OnshapeCommentNotification,
 ) {
@@ -370,32 +406,16 @@ async function fetchOnshapeCommentDetails(
 
   let lastError = "";
   for (const url of commentDetailUrls(notification)) {
-    const method = "GET";
-    const contentType = "application/json;charset=UTF-8; qs=0.09";
-    const authHeaders = onshapeCommentAuthHeaders({
-      method,
-      url,
-      contentType,
-    });
-    if (!authHeaders) {
+    const response = await fetchOnshapeCommentApi(url);
+    if (!response) {
       return null;
     }
 
-    const response = await fetch(url, {
-      headers: {
-        Accept: "application/json;charset=UTF-8; qs=0.09",
-        "Content-Type": contentType,
-        ...authHeaders,
-      },
-      cache: "no-store",
-    });
-
     if (response.ok) {
-      return (await response.json()) as unknown;
+      return response.body;
     }
 
-    const body = await response.text();
-    lastError = `Onshape comment detail request failed (${response.status}) at ${url}: ${body}`;
+    lastError = `Onshape comment detail request failed (${response.status}) at ${url}: ${String(response.body)}`;
 
     if (response.status !== 404) {
       break;
@@ -610,12 +630,75 @@ export function onshapeCommentActionLabel(event: string) {
   return eventDisplayText(event);
 }
 
+// Document names rarely change; cache per instance so repeated comments on the
+// same document do not each spend an Onshape API call. Definitive misses
+// (no credentials, 401/403/404) are cached briefly so a misconfigured key does
+// not retry on every webhook; transient failures (429/5xx/network) are not
+// cached so the next comment can recover.
+const documentNameCacheTtlMs = 60 * 60 * 1000;
+const documentNameMissTtlMs = 5 * 60 * 1000;
+const documentNameCache = new Map<string, { name: string; expiresAt: number }>();
+
+function cacheDocumentName(documentId: string, name: string) {
+  documentNameCache.set(documentId, {
+    name,
+    expiresAt:
+      Date.now() + (name ? documentNameCacheTtlMs : documentNameMissTtlMs),
+  });
+  return name;
+}
+
+async function fetchOnshapeDocumentName(notification: OnshapeCommentNotification) {
+  const documentId = notification.documentId;
+  if (!documentId) {
+    return "";
+  }
+
+  const cached = documentNameCache.get(documentId);
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.name;
+  }
+
+  const server = serverFromNotification(notification);
+  const url = `${server}/api/documents/${encodeURIComponent(documentId)}`;
+
+  let response: OnshapeCommentApiResponse | null;
+  try {
+    response = await fetchOnshapeCommentApi(url);
+  } catch {
+    // Network failure: leave uncached so the next comment retries.
+    return "";
+  }
+
+  if (!response) {
+    return cacheDocumentName(documentId, "");
+  }
+
+  if (response.ok) {
+    return cacheDocumentName(
+      documentId,
+      directString(asRecord(response.body), ["name", "documentName"]),
+    );
+  }
+
+  const definitiveMiss = [401, 403, 404].includes(response.status);
+  return definitiveMiss ? cacheDocumentName(documentId, "") : "";
+}
+
 export async function enrichOnshapeCommentNotification(
   notification: OnshapeCommentNotification,
 ): Promise<OnshapeCommentNotification> {
-  const details = await fetchOnshapeCommentDetails(notification);
+  // The caller seeds documentName from the thread store when it is already
+  // known, so the fetch only runs for a document we have not seen. The two
+  // requests are independent; run them together to keep the webhook fast.
+  const [documentName, details] = await Promise.all([
+    notification.documentName
+      ? Promise.resolve(notification.documentName)
+      : fetchOnshapeDocumentName(notification),
+    fetchOnshapeCommentDetails(notification),
+  ]);
   if (!details) {
-    return notification;
+    return { ...notification, documentName };
   }
 
   const commentText = firstString(
@@ -647,6 +730,7 @@ export async function enrichOnshapeCommentNotification(
       authorEmailFromDetails(details),
     ),
     documentUrl: documentUrlFromDetails(details, notification),
+    documentName,
     mentionCandidates,
   };
 }

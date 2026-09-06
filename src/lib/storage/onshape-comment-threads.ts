@@ -14,6 +14,15 @@ export interface OnshapeCommentThreadRecord {
   rootAuthorName: string;
   rootAuthorEmail: string;
   documentUrl: string;
+  documentName: string;
+  // The text we last posted, so unchanged update events can be skipped.
+  // Absent on records written before text tracking (unknown); "" is a known
+  // empty comment.
+  commentText?: string;
+  // Set on a root record synthesized from a reply that arrived before the root
+  // itself was posted. It carries the Slack anchor for threading but must not
+  // be taken as proof the root comment was posted.
+  placeholder?: boolean;
   updatedAt: string;
 }
 
@@ -111,21 +120,23 @@ async function writeThreadStore(
     : writeLocalThreadStore(store);
 }
 
-export async function findOnshapeCommentThread(...commentIds: string[]) {
+// Fetch several records with a single store read.
+export async function loadOnshapeCommentThreads(...commentIds: string[]) {
   const ids = commentIds.filter(Boolean);
+  const found: Record<string, OnshapeCommentThreadRecord> = {};
   if (ids.length === 0) {
-    return null;
+    return found;
   }
 
   const store = await readThreadStore();
   for (const id of ids) {
     const record = store[id];
     if (record) {
-      return record;
+      found[id] = record;
     }
   }
 
-  return null;
+  return found;
 }
 
 export async function saveOnshapeCommentThread(input: {
@@ -134,7 +145,8 @@ export async function saveOnshapeCommentThread(input: {
   slackMessageTs: string;
   rootThread?: OnshapeCommentThreadRecord | null;
 }) {
-  if (!input.notification.commentId || !input.slackChannelId || !input.slackMessageTs) {
+  const commentId = input.notification.commentId;
+  if (!commentId || !input.slackChannelId || !input.slackMessageTs) {
     return null;
   }
 
@@ -144,10 +156,17 @@ export async function saveOnshapeCommentThread(input: {
     rootThread?.rootCommentId ||
     input.notification.rootCommentId ||
     input.notification.parentCommentId ||
-    input.notification.commentId;
+    commentId;
+  const isRootComment = commentId === rootCommentId;
+
+  // Re-read right before writing to keep the lost-update window as small as
+  // the whole-store overwrite allows.
+  const store = await readThreadStore();
+  const existingOwn = store[commentId];
+  const existingRoot = store[rootCommentId];
 
   const record: OnshapeCommentThreadRecord = {
-    commentId: input.notification.commentId,
+    commentId,
     rootCommentId,
     slackChannelId: rootThread?.slackChannelId || input.slackChannelId,
     slackMessageTs: rootThread?.slackMessageTs || input.slackMessageTs,
@@ -156,17 +175,49 @@ export async function saveOnshapeCommentThread(input: {
     rootAuthorName: rootThread?.rootAuthorName || input.notification.authorName,
     rootAuthorEmail: rootThread?.rootAuthorEmail || input.notification.authorEmail,
     documentUrl: input.notification.documentUrl || rootThread?.documentUrl || "",
+    documentName:
+      input.notification.documentName ||
+      existingOwn?.documentName ||
+      rootThread?.documentName ||
+      existingRoot?.documentName ||
+      "",
+    // Never let an empty incoming text erase text we already know.
+    commentText:
+      input.notification.commentText || existingOwn?.commentText || "",
     updatedAt: now,
   };
 
-  const store = await readThreadStore();
-  store[input.notification.commentId] = record;
-  store[rootCommentId] = {
-    ...record,
-    commentId: rootCommentId,
-    authorName: rootThread?.rootAuthorName || record.rootAuthorName,
-    authorEmail: rootThread?.rootAuthorEmail || record.rootAuthorEmail,
-  };
+  store[commentId] = record;
+
+  if (isRootComment) {
+    store[rootCommentId] = record;
+  } else if (existingRoot) {
+    // A reply refreshes the root's bookkeeping but must not touch its text or
+    // its placeholder status; only the root's own save does that.
+    store[rootCommentId] = {
+      ...existingRoot,
+      documentName: existingRoot.documentName || record.documentName,
+      updatedAt: now,
+    };
+  } else {
+    // The root has not been seen yet: synthesize a placeholder that carries the
+    // Slack anchor so later replies can thread, without claiming the root was
+    // posted and without copying this reply's text onto it.
+    store[rootCommentId] = {
+      commentId: rootCommentId,
+      rootCommentId,
+      slackChannelId: record.slackChannelId,
+      slackMessageTs: record.slackMessageTs,
+      authorName: record.rootAuthorName,
+      authorEmail: record.rootAuthorEmail,
+      rootAuthorName: record.rootAuthorName,
+      rootAuthorEmail: record.rootAuthorEmail,
+      documentUrl: record.documentUrl,
+      documentName: record.documentName,
+      placeholder: true,
+      updatedAt: now,
+    };
+  }
 
   await writeThreadStore(store);
   return record;
