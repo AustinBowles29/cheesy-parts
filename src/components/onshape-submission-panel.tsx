@@ -160,6 +160,28 @@ function uniqueStrings(values: readonly string[]) {
   return Array.from(new Set(values.filter(Boolean)));
 }
 
+// Post-process choices normally come from the Airtable field, but these must be
+// offered even when that field has not been given the matching options yet.
+const alwaysOfferedPostProcesses = ["None", "Deburring"] as const;
+
+function withRequiredOptions(
+  options: readonly string[],
+  required: readonly string[],
+) {
+  const merged = [...options];
+  const seen = new Set(merged.map((value) => value.trim().toLowerCase()));
+
+  for (const value of required) {
+    const key = value.trim().toLowerCase();
+    if (!seen.has(key)) {
+      seen.add(key);
+      merged.push(value);
+    }
+  }
+
+  return merged;
+}
+
 function normalizeMachineOptions(options: readonly string[]) {
   const uniqueOptions = uniqueStrings(options);
   const hasRouter = uniqueOptions.some(
@@ -214,10 +236,13 @@ export function OnshapeSubmissionPanel({
   );
   const postProcessOptions = useMemo(
     () =>
-      uniqueStrings(
-        fieldOptions.postProcesses.length > 0
-          ? fieldOptions.postProcesses
-          : FINISHES,
+      withRequiredOptions(
+        uniqueStrings(
+          fieldOptions.postProcesses.length > 0
+            ? fieldOptions.postProcesses
+            : FINISHES,
+        ),
+        alwaysOfferedPostProcesses,
       ),
     [fieldOptions.postProcesses],
   );

@@ -993,6 +993,21 @@ function finishChoiceAliases(finish: ManufacturingRequest["finish"]) {
     ];
   }
 
+  if (normalizedFinish === "none") {
+    return [
+      "No finish",
+      "No post-process",
+      "No Post-Process",
+      "No post process",
+      "No postprocessing",
+      "Raw",
+    ];
+  }
+
+  if (normalizedFinish === "deburring") {
+    return ["Deburr", "Debur", "De-burr", "Deburred"];
+  }
+
   if (normalizedFinish === "powder coat") {
     return ["Powdercoat", "Powder coat", "Powder"];
   }

@@ -8,7 +8,14 @@ export const STATUSES = [
   "Done for Spares",
 ] as const;
 
-export const FINISHES = ["Powder Coat", "Anodize", "Raw", "Other"] as const;
+export const FINISHES = [
+  "None",
+  "Deburring",
+  "Powder Coat",
+  "Anodize",
+  "Raw",
+  "Other",
+] as const;
 
 export const CATEGORIES = [
   "Robot",
