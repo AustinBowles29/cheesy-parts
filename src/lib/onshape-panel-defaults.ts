@@ -179,7 +179,7 @@ export function defaultsFromPanelParams(
           firstPanelParam(params.versionId) ??
           firstPanelParam(params.workspaceOrVersionId),
       ),
-    finish: firstPanelParam(params.finish) ?? "Raw",
+    finish: firstPanelParam(params.finish) ?? "None",
     submitter:
       firstPanelParam(params.submitter) ??
       firstPanelParam(params.owner) ??

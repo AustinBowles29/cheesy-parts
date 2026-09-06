@@ -576,6 +576,25 @@ function fieldChoices(field: AirtableFieldSchema | undefined) {
   );
 }
 
+// "Raw" and "None" mean the same thing, and "Raw" reads as a material rather
+// than "no post-process", so hide it once the clearer "None" option exists.
+function normalizedPostProcessChoices(tables: AirtableTableSchema[]) {
+  const choices = uniqueSorted(
+    tables.flatMap((table) =>
+      fieldChoices(fieldByName(table, ["Post-process", "Finish"])),
+    ),
+  );
+  const hasNone = choices.some(
+    (choice) => choice.trim().toLowerCase() === "none",
+  );
+
+  if (!hasNone) {
+    return choices;
+  }
+
+  return choices.filter((choice) => choice.trim().toLowerCase() !== "raw");
+}
+
 function normalizedMachineChoices(tables: AirtableTableSchema[]) {
   const choices = uniqueSorted(
     tables.flatMap((table) =>
@@ -645,11 +664,7 @@ export async function getAirtableSubmissionFieldOptions(): Promise<SubmissionFie
         tables.flatMap((table) => fieldChoices(fieldByName(table, ["Status"]))),
       ),
       machineTypes: normalizedMachineChoices(tables),
-      postProcesses: uniqueSorted(
-        tables.flatMap((table) =>
-          fieldChoices(fieldByName(table, ["Post-process", "Finish"])),
-        ),
-      ),
+      postProcesses: normalizedPostProcessChoices(tables),
       airtableTables: tables.map((table) =>
         airtableTableOption(table, cloneBotId),
       ),
@@ -982,17 +997,7 @@ function machineChoiceAliases(machineType: ManufacturingRequest["machineType"]) 
 function finishChoiceAliases(finish: ManufacturingRequest["finish"]) {
   const normalizedFinish = normalizeString(finish).toLowerCase();
 
-  if (normalizedFinish === "raw") {
-    return [
-      "None",
-      "No finish",
-      "No post-process",
-      "No Post-Process",
-      "No post process",
-      "No postprocessing",
-    ];
-  }
-
+  // "raw" never reaches here: coerceFinish canonicalizes it to "None".
   if (normalizedFinish === "none") {
     return [
       "No finish",

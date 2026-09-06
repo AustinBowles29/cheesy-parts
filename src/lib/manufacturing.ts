@@ -84,8 +84,26 @@ export function coerceCategory(value: unknown): Category {
   return matchingChoice(CATEGORIES, value) ?? DEFAULT_CATEGORY;
 }
 
+// "Raw" was retired in favour of the clearer "None"; map it and the other
+// no-finish wordings so existing records still read as a known choice.
+const finishAliases: Record<string, Finish> = {
+  raw: "None",
+  "no finish": "None",
+  "no post-process": "None",
+  "no post process": "None",
+  "no postprocessing": "None",
+  deburr: "Deburring",
+  debur: "Deburring",
+  "de-burr": "Deburring",
+  deburred: "Deburring",
+};
+
 export function coerceFinish(value: unknown): Finish {
-  return matchingChoice(FINISHES, value) ?? normalizeString(value, DEFAULT_FINISH);
+  return (
+    finishAliases[normalizedChoiceKey(value)] ??
+    matchingChoice(FINISHES, value) ??
+    normalizeString(value, DEFAULT_FINISH)
+  );
 }
 
 export function coerceMachineType(value: unknown): MachineType | undefined {

@@ -13,7 +13,6 @@ export const FINISHES = [
   "Deburring",
   "Powder Coat",
   "Anodize",
-  "Raw",
   "Other",
 ] as const;
 
@@ -42,5 +41,5 @@ export const PRIORITIES = ["Critical", "High", "Normal", "Low"] as const;
 
 export const DEFAULT_STATUS = "Needs CAM";
 export const DEFAULT_CATEGORY = "Robot";
-export const DEFAULT_FINISH = "Raw";
+export const DEFAULT_FINISH = "None";
 export const DEFAULT_PRIORITY = "Normal";

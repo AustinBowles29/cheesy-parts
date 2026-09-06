@@ -249,7 +249,7 @@ export function OnshapeSubmissionPanel({
   const defaultFinish =
     dropdownInitialValue(defaults.finish, postProcessOptions) ||
     postProcessOptions[0] ||
-    "Raw";
+    "None";
   const dirtyFieldsRef = useRef<Set<string>>(new Set());
   const selectedContextKey = useMemo(
     () =>
