@@ -1,3 +1,4 @@
+import { recordOnshapeCall, withOnshapeUsage } from "./onshape-usage";
 import { cookies } from "next/headers";
 import { saveGeneratedFile } from "../files";
 import { normalizeString } from "../manufacturing";
@@ -490,6 +491,24 @@ async function fetchOnshapeUserProfile(accessToken: string, server?: string) {
   return undefined;
 }
 
+// The signed-in user does not change within a session, yet this ran on every
+// dashboard render and every panel load. Cache per token (in memory only) so
+// it costs at most one Onshape call per user every few minutes.
+const currentUserCacheTtlMs = 10 * 60 * 1000;
+const currentUserCache = new Map<
+  string,
+  { result: OnshapeUserResult; expiresAt: number }
+>();
+const currentUserInFlight = new Map<string, Promise<OnshapeUserResult>>();
+
+function pruneCurrentUserCache(now: number) {
+  for (const [key, entry] of currentUserCache) {
+    if (entry.expiresAt <= now) {
+      currentUserCache.delete(key);
+    }
+  }
+}
+
 export async function fetchOnshapeCurrentUser(
   options: { server?: string; accessToken?: string } = {},
 ): Promise<OnshapeUserResult> {
@@ -503,17 +522,44 @@ export async function fetchOnshapeCurrentUser(
     return { defaults: {} };
   }
 
-  try {
-    const user = await fetchOnshapeUserProfile(accessToken, options.server);
-    return {
-      defaults: {
-        submitter: user?.displayName,
-      },
-      user,
-    };
-  } catch {
-    return { defaults: {} };
+  const cacheKey = `${normalizeString(options.server)}|${accessToken}`;
+  const cached = currentUserCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.result;
   }
+
+  const inFlight = currentUserInFlight.get(cacheKey);
+  if (inFlight) {
+    return inFlight;
+  }
+
+  const load = withOnshapeUsage("current-user", async () => {
+    try {
+      const user = await fetchOnshapeUserProfile(accessToken, options.server);
+      const result: OnshapeUserResult = {
+        defaults: {
+          submitter: user?.displayName,
+        },
+        user,
+      };
+      // Only a resolved profile is worth remembering; a miss should retry.
+      if (user) {
+        const now = Date.now();
+        pruneCurrentUserCache(now);
+        currentUserCache.set(cacheKey, {
+          result,
+          expiresAt: now + currentUserCacheTtlMs,
+        });
+      }
+      return result;
+    } catch {
+      return { defaults: {} };
+    }
+  }).finally(() => {
+    currentUserInFlight.delete(cacheKey);
+  });
+  currentUserInFlight.set(cacheKey, load);
+  return load;
 }
 
 export function onshapeContextFromParams(
@@ -1137,15 +1183,48 @@ async function fetchBomDefaults(input: {
   return defaults;
 }
 
+// The element list is needed by both the BOM and drawing lookups, and the panel
+// often loads the same context several times in a row. Hold it briefly so one
+// request serves all of them.
+const documentElementsCacheTtlMs = 60 * 1000;
+const documentElementsCache = new Map<
+  string,
+  { elements: OnshapeElement[]; expiresAt: number }
+>();
+const documentElementsInFlight = new Map<string, Promise<OnshapeElement[]>>();
+
 async function fetchDocumentElements(
   context: OnshapeContext,
   accessToken: string,
 ): Promise<OnshapeElement[]> {
-  return onshapeFetchJson<OnshapeElement[]>(
+  const cacheKey = `${normalizeString(context.server)}|${context.documentId}/${context.wvm}/${context.wvmId}`;
+  const cached = documentElementsCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.elements;
+  }
+
+  const inFlight = documentElementsInFlight.get(cacheKey);
+  if (inFlight) {
+    return inFlight;
+  }
+
+  const load = onshapeFetchJson<OnshapeElement[]>(
     `/v10/documents/d/${context.documentId}/${context.wvm}/${context.wvmId}/elements`,
     accessToken,
     context.server,
-  );
+  )
+    .then((elements) => {
+      documentElementsCache.set(cacheKey, {
+        elements,
+        expiresAt: Date.now() + documentElementsCacheTtlMs,
+      });
+      return elements;
+    })
+    .finally(() => {
+      documentElementsInFlight.delete(cacheKey);
+    });
+  documentElementsInFlight.set(cacheKey, load);
+  return load;
 }
 
 async function onshapeFetchJson<T>(
@@ -1165,6 +1244,7 @@ async function onshapeFetchJson<T>(
     throw new Error(`Onshape API request failed (${response.status}): ${text}`);
   }
 
+  recordOnshapeCall();
   return (await response.json()) as T;
 }
 
@@ -1189,6 +1269,7 @@ async function onshapePostJson<T>(
     throw new Error(`Onshape API request failed (${response.status}): ${text}`);
   }
 
+  recordOnshapeCall();
   return (await response.json()) as T;
 }
 
@@ -1210,6 +1291,18 @@ async function postSelectedPartMetadata(
 }
 
 export async function updateOnshapeSelectedPartMetadata(input: {
+  context: OnshapeContext;
+  accessToken: string;
+  partNumber: string;
+  description: string;
+  material: string;
+}): Promise<OnshapePartMetadataUpdateResult> {
+  return withOnshapeUsage("selected-part-metadata", () =>
+    applyOnshapeSelectedPartMetadata(input),
+  );
+}
+
+async function applyOnshapeSelectedPartMetadata(input: {
   context: OnshapeContext;
   accessToken: string;
   partNumber: string;
@@ -1267,6 +1360,15 @@ export async function listOnshapeDocumentPartNumbers(
   context: OnshapeContext,
   accessToken: string,
 ) {
+  return withOnshapeUsage("document-part-numbers", () =>
+    loadOnshapeDocumentPartNumbers(context, accessToken),
+  );
+}
+
+async function loadOnshapeDocumentPartNumbers(
+  context: OnshapeContext,
+  accessToken: string,
+) {
   const query = new URLSearchParams({
     includePropertyDefaults: "false",
     withThumbnails: "false",
@@ -1317,6 +1419,7 @@ async function onshapeFetchBytes(
     throw new Error(`Onshape API request failed (${response.status}): ${text}`);
   }
 
+  recordOnshapeCall();
   return Buffer.from(await response.arrayBuffer());
 }
 
@@ -1570,25 +1673,30 @@ async function collectDrawingReferencedPartIdsWithResolvedReferences(input: {
   context: OnshapeContext;
   drawingElementId: string;
   views: unknown;
+  resolveReferences: boolean;
 }) {
   const partIds = collectDrawingReferencedPartIds(input.views);
   const referenceIds = collectDrawingModelReferenceIds(input.views);
 
-  await Promise.all(
-    Array.from(referenceIds).map(async (referenceId) => {
-      try {
-        const reference = await fetchAppElementReference({
-          accessToken: input.accessToken,
-          context: input.context,
-          drawingElementId: input.drawingElementId,
-          referenceId,
-        });
-        collectDrawingReferencedPartIds(reference, partIds);
-      } catch {
-        // Unresolvable references are treated as unknown, not as a match.
-      }
-    }),
-  );
+  // Resolved references only feed the part-id match, which needs a selected
+  // part id. Without one, every one of these fetches would be pure cost.
+  if (input.resolveReferences) {
+    await Promise.all(
+      Array.from(referenceIds).map(async (referenceId) => {
+        try {
+          const reference = await fetchAppElementReference({
+            accessToken: input.accessToken,
+            context: input.context,
+            drawingElementId: input.drawingElementId,
+            referenceId,
+          });
+          collectDrawingReferencedPartIds(reference, partIds);
+        } catch {
+          // Unresolvable references are treated as unknown, not as a match.
+        }
+      }),
+    );
+  }
 
   return {
     modelReferenceCount: referenceIds.size,
@@ -1678,6 +1786,13 @@ async function findSinglePartDrawing(input: {
   partName: string;
   partNumber: string;
 }) {
+  // Without any way to identify the part, no drawing can ever match, and the
+  // scan would fetch every drawing and reference in the document for nothing.
+  // The right-panel context supplies no part id, so this is the common case.
+  if (!input.partId && !input.partName && !input.partNumber) {
+    return null;
+  }
+
   let elements: OnshapeElement[];
   try {
     elements = await fetchDocumentElements(input.context, input.accessToken);
@@ -1704,6 +1819,7 @@ async function findSinglePartDrawing(input: {
           context: input.context,
           drawingElementId,
           views,
+          resolveReferences: Boolean(input.partId),
         });
       const viewMatch = drawingViewsReferenceMatch({
         referencedPartIds: referencedParts.partIds,
@@ -2088,14 +2204,16 @@ export async function createOnshapeDrawingPdfAttachment(
     return null;
   }
 
-  const bytes = await exportDrawingPdf({
-    accessToken,
-    documentId,
-    wvm,
-    wvmId,
-    drawingElementId,
-    server: server || undefined,
-  });
+  const bytes = await withOnshapeUsage("drawing-pdf-export", () =>
+    exportDrawingPdf({
+      accessToken,
+      documentId,
+      wvm,
+      wvmId,
+      drawingElementId,
+      server: server || undefined,
+    }),
+  );
   const filenameBase =
     normalizeString(input.partNumber) ||
     normalizeString(input.partName) ||
@@ -2140,14 +2258,16 @@ export async function createOnshapeDrawingDxfAttachment(
     return null;
   }
 
-  const bytes = await exportDrawingDxf({
-    accessToken,
-    documentId,
-    wvm,
-    wvmId,
-    drawingElementId,
-    server: server || undefined,
-  });
+  const bytes = await withOnshapeUsage("drawing-dxf-export", () =>
+    exportDrawingDxf({
+      accessToken,
+      documentId,
+      wvm,
+      wvmId,
+      drawingElementId,
+      server: server || undefined,
+    }),
+  );
   const filenameBase =
     normalizeString(input.partNumber) ||
     normalizeString(input.partName) ||
@@ -2245,6 +2365,16 @@ function partToDefaults(
 }
 
 export async function fetchOnshapePartMetadata(
+  context: OnshapeContext | null,
+  returnTo: string,
+  options: OnshapeMetadataOptions = {},
+): Promise<OnshapeMetadataResult> {
+  return withOnshapeUsage("part-metadata", () =>
+    loadOnshapePartMetadata(context, returnTo, options),
+  );
+}
+
+async function loadOnshapePartMetadata(
   context: OnshapeContext | null,
   returnTo: string,
   options: OnshapeMetadataOptions = {},

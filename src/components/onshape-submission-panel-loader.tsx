@@ -298,7 +298,25 @@ export function OnshapeSubmissionPanelLoader({
       }
     }
 
-    loadPanelData("fast");
+    // A fresh cached result for this exact context already has everything the
+    // form needs. Re-fetching would only re-spend Onshape API calls (which are
+    // capped per year), so skip the network entirely.
+    const cachedPanelData = readCachedOnshapePanelData(panelDataUrl);
+    const cacheIsComplete = Boolean(
+      cachedPanelData &&
+        hasFieldOptions(cachedPanelData.fieldOptions) &&
+        (cachedPanelData.defaults.partName ||
+          cachedPanelData.defaults.material ||
+          cachedPanelData.defaults.notes ||
+          cachedPanelData.defaults.onshapeDrawingUrl ||
+          cachedPanelData.defaults.submitter),
+    );
+    if (cacheIsComplete) {
+      return () => abortController.abort();
+    }
+
+    // "details" now carries the user as well, so the former "fast" pass would
+    // only duplicate its parts/metadata/user requests.
     loadPanelData("options");
     loadPanelData("details");
 

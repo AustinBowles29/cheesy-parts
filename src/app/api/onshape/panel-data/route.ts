@@ -45,7 +45,6 @@ export async function GET(req: Request) {
           ? {
               accessToken,
               includeFieldOptions: false,
-              includeUser: false,
             }
           : mode === "options"
             ? {

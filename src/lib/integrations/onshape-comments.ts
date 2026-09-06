@@ -1,5 +1,6 @@
 import { createHmac, randomBytes } from "node:crypto";
 import { normalizeString } from "../manufacturing";
+import { recordOnshapeCall } from "./onshape-usage";
 import { normalizeOnshapeServer } from "./onshape";
 
 export interface OnshapeCommentNotification {
@@ -393,6 +394,9 @@ async function fetchOnshapeCommentApi(
   const body: unknown = response.ok
     ? await response.json()
     : await response.text();
+  if (response.ok) {
+    recordOnshapeCall();
+  }
 
   return { ok: response.ok, status: response.status, body };
 }

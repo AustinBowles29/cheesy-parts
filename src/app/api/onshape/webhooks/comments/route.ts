@@ -4,6 +4,7 @@ import {
   onshapeCommentNotificationFromPayload,
 } from "@/lib/integrations/onshape-comments";
 import type { OnshapeCommentNotification } from "@/lib/integrations/onshape-comments";
+import { withOnshapeUsage } from "@/lib/integrations/onshape-usage";
 import { notifyOnshapeCommentWithOptions } from "@/lib/integrations/slack";
 import { normalizeString } from "@/lib/manufacturing";
 import {
@@ -222,7 +223,11 @@ export async function POST(req: Request) {
 
   let enrichmentWarning = "";
   try {
-    notification = await enrichOnshapeCommentNotification(notification);
+    // Captured as a const so the closure keeps the non-null narrowing.
+    const pendingNotification = notification;
+    notification = await withOnshapeUsage("comment-webhook", () =>
+      enrichOnshapeCommentNotification(pendingNotification),
+    );
   } catch (error) {
     enrichmentWarning =
       error instanceof Error
