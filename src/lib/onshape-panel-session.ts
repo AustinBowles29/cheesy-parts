@@ -3,6 +3,10 @@ import type { SubmissionFieldOptions, SubmissionInput } from "@/lib/types";
 export interface CachedOnshapePanelData {
   defaults: SubmissionInput;
   fieldOptions: SubmissionFieldOptions;
+  // True once the full (drawing-inclusive) load has completed for this context.
+  // A metadata-only load can also fill the cache, and must not stop the
+  // drawing lookup from running later.
+  detailsLoaded?: boolean;
 }
 
 const lastOnshapeSubmitHrefStorageKey = "cheesy-parts:last-onshape-submit-href";
@@ -84,6 +88,7 @@ export function readCachedOnshapePanelData(
     return {
       defaults: stored.defaults,
       fieldOptions: stored.fieldOptions,
+      detailsLoaded: stored.detailsLoaded,
     };
   } catch {
     window.sessionStorage.removeItem(key);
@@ -104,10 +109,14 @@ export function rememberOnshapePanelData(
     return;
   }
 
+  // A later metadata-only save must not forget that details already ran.
+  const existing = readCachedOnshapePanelData(panelDataUrl);
   window.sessionStorage.setItem(
     key,
     JSON.stringify({
       ...panelData,
+      detailsLoaded:
+        panelData.detailsLoaded ?? existing?.detailsLoaded ?? false,
       savedAt: Date.now(),
     } satisfies StoredPanelData),
   );

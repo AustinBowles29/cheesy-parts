@@ -1961,13 +1961,20 @@ function stripDrawingSheetLayersFromDxf(bytes: Buffer) {
   return Buffer.from(`${strippedText}${lineEnding}`, "utf8");
 }
 
+// Translations never finish instantly, so wait before the first poll, then
+// back off. Every status poll is a billable Onshape call, so fewer, better-
+// spaced polls matter more than reacting a second sooner. Same ~31s window as
+// before, with at most 8 polls instead of 12.
+const translationPollDelaysMs = [1500, 1500, 2000, 3000, 4000, 5000, 6000, 8000];
+
 async function waitForTranslation(
   translationId: string,
   accessToken: string,
   server?: string,
   label = "Onshape drawing export",
 ): Promise<OnshapeTranslationResponse> {
-  for (let attempt = 0; attempt < 12; attempt += 1) {
+  for (const delay of translationPollDelaysMs) {
+    await sleep(delay);
     const translation = await onshapeFetchJson<OnshapeTranslationResponse>(
       `/v9/translations/${translationId}`,
       accessToken,
@@ -1984,8 +1991,6 @@ async function waitForTranslation(
         translation.failureReason || `${label} failed.`,
       );
     }
-
-    await sleep(400 * (attempt + 1));
   }
 
   throw new Error(`${label} did not finish in time.`);
@@ -2003,10 +2008,10 @@ async function exportDrawingFile(input: {
 }) {
   const translationPath = `/v6/drawings/d/${input.documentId}/${input.wvm}/${input.wvmId}/e/${input.drawingElementId}/translations`;
   const translationUrl = `${apiBaseUrlForServer(input.server)}${translationPath}`;
-  const formatName = await drawingTranslationFormatName(input);
-  let translation: OnshapeTranslationResponse;
-  try {
-    translation = await onshapePostJson<OnshapeTranslationResponse>(
+  const errorText = (error: unknown) =>
+    error instanceof Error ? error.message : String(error);
+  const startTranslation = (formatName: string) =>
+    onshapePostJson<OnshapeTranslationResponse>(
       translationPath,
       input.accessToken,
       {
@@ -2016,12 +2021,28 @@ async function exportDrawingFile(input: {
       },
       input.server,
     );
-  } catch (error) {
-    throw new Error(
-      `${input.label} could not start at ${translationUrl}: ${
-        error instanceof Error ? error.message : String(error)
-      }`,
-    );
+
+  // Start with the plain format name: Onshape accepts "PDF"/"DXF" directly and
+  // a refused start is a 4xx, which does not count against the API limit. Only
+  // resolve the exact name through the (cached) formats lookup if refused.
+  let translation: OnshapeTranslationResponse;
+  try {
+    translation = await startTranslation(input.formatName);
+  } catch (firstError) {
+    const resolvedFormat = await drawingTranslationFormatName(input);
+    if (resolvedFormat === input.formatName) {
+      throw new Error(
+        `${input.label} could not start at ${translationUrl}: ${errorText(firstError)}`,
+      );
+    }
+
+    try {
+      translation = await startTranslation(resolvedFormat);
+    } catch (error) {
+      throw new Error(
+        `${input.label} could not start at ${translationUrl}: ${errorText(error)}`,
+      );
+    }
   }
 
   const translationId = normalizeString(translation.id || translation.requestId);
@@ -2029,20 +2050,23 @@ async function exportDrawingFile(input: {
     throw new Error(`${input.label} did not return a translation id.`);
   }
 
+  // A small drawing can come back already finished; do not spend a poll on it.
   let finished: OnshapeTranslationResponse;
-  try {
-    finished = await waitForTranslation(
-      translationId,
-      input.accessToken,
-      input.server,
-      input.label,
-    );
-  } catch (error) {
-    throw new Error(
-      `${input.label} translation ${translationId} could not finish: ${
-        error instanceof Error ? error.message : String(error)
-      }`,
-    );
+  if (normalizeString(translation.requestState).toUpperCase() === "DONE") {
+    finished = translation;
+  } else {
+    try {
+      finished = await waitForTranslation(
+        translationId,
+        input.accessToken,
+        input.server,
+        input.label,
+      );
+    } catch (error) {
+      throw new Error(
+        `${input.label} translation ${translationId} could not finish: ${errorText(error)}`,
+      );
+    }
   }
 
   const resultDocumentId =
@@ -2094,6 +2118,14 @@ async function exportDrawingFile(input: {
   );
 }
 
+// Valid drawing translation formats do not vary per drawing in practice, and
+// the lookup is a billable call, so remember the resolved name per server.
+const translationFormatCacheTtlMs = 24 * 60 * 60 * 1000;
+const translationFormatCache = new Map<
+  string,
+  { name: string; expiresAt: number }
+>();
+
 async function drawingTranslationFormatName(input: {
   accessToken: string;
   documentId: string;
@@ -2104,7 +2136,13 @@ async function drawingTranslationFormatName(input: {
   server?: string;
 }) {
   const desiredFormat = input.formatName.toLowerCase();
+  const cacheKey = `${normalizeString(input.server)}|${desiredFormat}`;
+  const cached = translationFormatCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.name;
+  }
 
+  let resolved = input.formatName as string;
   try {
     const formats = await onshapeFetchJson<OnshapeTranslationFormat[]>(
       `/v6/drawings/d/${input.documentId}/${input.wvm}/${input.wvmId}/e/${input.drawingElementId}/translationformats`,
@@ -2114,32 +2152,30 @@ async function drawingTranslationFormatName(input: {
     const validFormats = formats.filter(
       (format) => format.validDestinationFormat !== false,
     );
-    const exactName = validFormats.find(
-      (format) => normalizeString(format.name).toLowerCase() === desiredFormat,
-    );
-    if (exactName?.name) {
-      return exactName.name;
-    }
-
-    const exactTranslator = validFormats.find(
-      (format) =>
-        normalizeString(format.translatorName).toLowerCase() === desiredFormat,
-    );
-    if (exactTranslator?.name) {
-      return exactTranslator.name;
-    }
-
-    const containingName = validFormats.find((format) =>
-      normalizeString(format.name).toLowerCase().includes(desiredFormat),
-    );
-    if (containingName?.name) {
-      return containingName.name;
+    const match =
+      validFormats.find(
+        (format) => normalizeString(format.name).toLowerCase() === desiredFormat,
+      ) ??
+      validFormats.find(
+        (format) =>
+          normalizeString(format.translatorName).toLowerCase() === desiredFormat,
+      ) ??
+      validFormats.find((format) =>
+        normalizeString(format.name).toLowerCase().includes(desiredFormat),
+      );
+    if (match?.name) {
+      resolved = match.name;
     }
   } catch {
+    // A failed lookup is not worth remembering; fall back to the plain name.
     return input.formatName;
   }
 
-  return input.formatName;
+  translationFormatCache.set(cacheKey, {
+    name: resolved,
+    expiresAt: Date.now() + translationFormatCacheTtlMs,
+  });
+  return resolved;
 }
 
 async function exportDrawingPdf(input: {

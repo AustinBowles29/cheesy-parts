@@ -41,9 +41,18 @@ https://cheesy-parts.vercel.app/onshape?documentId={$documentId}&workspaceOrVers
 ```
 
 If Onshape leaves an unsupported replacement token such as `{$partNumber}` in
-the URL, the panel ignores it and leaves that field editable. The embedded
-right-panel context does not currently provide part names directly, so the panel
-uses Onshape OAuth plus API metadata lookup when configured.
+the URL, the panel ignores it and leaves that field editable.
+
+Note that the Element Right Panel location does **not** resolve `{$partId}`
+(only tree and document-list context menus do), so the URL alone never tells
+the panel which part is selected. The panel therefore performs Onshape's
+client-messaging handshake when embedded: it posts `applicationInit` to the
+parent frame, then follows the `SELECTION` messages Onshape sends as the user
+clicks parts. Each new selection fetches that part's metadata with one or two
+targeted Onshape calls and, once the user has settled on the part for a few
+seconds, looks up its drawing. Selection messages are only accepted from the
+Onshape origin that embeds the panel. Without a known part the panel skips the
+document-wide BOM and drawing scans entirely, since nothing could match.
 
 OAuth app configuration:
 
